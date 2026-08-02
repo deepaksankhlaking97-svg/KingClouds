@@ -1,1113 +1,887 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -Eeuo pipefail
 
 # ============================================================
-#                 ZYROCLOUD INSTALLER
-#                      KVM MAKER
-#                  Optimized / Fast v2
+# ZYROCLOUD AUTO UBUNTU KVM MANAGER
+# Auto Install | Auto Resource Detect | Auto Start
+# Username: root | Password: root
 # ============================================================
 
-# ---------------- COLORS ----------------
-P='\033[1;35m'
-LP='\033[0;95m'
-C='\033[1;36m'
-G='\033[1;32m'
-Y='\033[1;33m'
-R='\033[1;31m'
-W='\033[1;37m'
-D='\033[0;90m'
-N='\033[0m'
-
-# ---------------- CONFIG ----------------
 VM_DIR="${VM_DIR:-$HOME/zyrocloud-vms}"
-STATE_DIR="$VM_DIR/.state"
-mkdir -p "$VM_DIR" "$STATE_DIR"
+UBUNTU_URL="https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
 
-# ---------------- BASIC FUNCTIONS ----------------
-pause() {
-    read -rp "$(echo -e "${D}Press Enter to continue...${N}")"
+BLUE='\033[1;34m'
+GREEN='\033[1;32m'
+YELLOW='\033[1;33m'
+RED='\033[1;31m'
+CYAN='\033[1;36m'
+RESET='\033[0m'
+
+info()    { echo -e "${BLUE}[INFO]${RESET} $*"; }
+success() { echo -e "${GREEN}[SUCCESS]${RESET} $*"; }
+warn()    { echo -e "${YELLOW}[WARN]${RESET} $*"; }
+error()   { echo -e "${RED}[ERROR]${RESET} $*"; }
+input()   { echo -ne "${CYAN}[INPUT]${RESET} $*"; }
+
+pause_screen() {
+    echo
+    read -rp "Press Enter to continue..."
 }
 
-info() {
-    echo -e "${C}[INFO]${N} $*"
-}
+# ------------------------------------------------------------
+# ROOT CHECK
+# ------------------------------------------------------------
 
-success() {
-    echo -e "${G}[SUCCESS]${N} $*"
-}
+if [[ $EUID -eq 0 ]]; then
+    SUDO=""
+else
+    SUDO="sudo"
+fi
 
-warn() {
-    echo -e "${Y}[WARN]${N} $*"
-}
+# ------------------------------------------------------------
+# AUTO INSTALL
+# ------------------------------------------------------------
 
-error() {
-    echo -e "${R}[ERROR]${N} $*"
-}
+install_dependencies() {
 
-die() {
-    error "$*"
-    exit 1
-}
+    local missing=()
 
-header() {
-    clear
-    echo -e "${P}"
-    cat <<'EOF'
-╔══════════════════════════════════════════════════════════════════════╗
-║                                                                      ║
-║                    ZYROCLOUD INSTALLER                              ║
-║                         KVM MAKER                                    ║
-║                                                                      ║
-║                    FAST • CLEAN • KVM                                ║
-║                                                                      ║
-╚══════════════════════════════════════════════════════════════════════╝
-EOF
-    echo -e "${N}"
-}
+    command -v qemu-system-x86_64 >/dev/null 2>&1 || missing+=("qemu-system-x86")
+    command -v qemu-img >/dev/null 2>&1 || missing+=("qemu-utils")
+    command -v cloud-localds >/dev/null 2>&1 || missing+=("cloud-image-utils")
+    command -v wget >/dev/null 2>&1 || missing+=("wget")
+    command -v openssl >/dev/null 2>&1 || missing+=("openssl")
 
-fast_anim() {
-    local text="$1"
-    printf "${P}%s${N}" "$text"
-    for _ in 1 2 3; do
-        printf "."
-        sleep 0.08
-    done
-    printf "\r\033[K"
-}
-
-# ---------------- ROOT CHECK ----------------
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        warn "Running without root."
-        warn "KVM installation may require sudo."
+    if [[ ${#missing[@]} -eq 0 ]]; then
+        success "KVM/QEMU dependencies already installed."
+        return
     fi
-}
 
-# ---------------- PACKAGE MANAGER ----------------
-pkg_install() {
+    info "Missing packages: ${missing[*]}"
+    info "Installing required packages..."
 
     if command -v apt-get >/dev/null 2>&1; then
 
-        export DEBIAN_FRONTEND=noninteractive
+        $SUDO apt-get update -y
 
-        if [[ ! -f "$STATE_DIR/apt-updated" ]]; then
-            info "Updating package lists..."
-            sudo apt-get update -y
-            touch "$STATE_DIR/apt-updated"
-        fi
-
-        sudo apt-get install -y \
+        $SUDO DEBIAN_FRONTEND=noninteractive apt-get install -y \
             qemu-system-x86 \
             qemu-utils \
             cloud-image-utils \
             wget \
             curl \
             openssl \
-            iproute2 \
-            procps \
             ca-certificates \
-            cpu-checker
+            genisoimage \
+            net-tools \
+            iproute2
 
     elif command -v dnf >/dev/null 2>&1; then
 
-        sudo dnf install -y \
+        $SUDO dnf install -y \
             qemu-system-x86 \
             qemu-img \
             cloud-utils \
             wget \
             curl \
             openssl \
-            iproute \
-            procps \
-            ca-certificates
-
-    elif command -v yum >/dev/null 2>&1; then
-
-        sudo yum install -y \
-            qemu-system-x86 \
-            qemu-img \
-            cloud-utils \
-            wget \
-            curl \
-            openssl \
-            iproute \
-            procps \
             ca-certificates
 
     else
-        die "Unsupported Linux distribution."
+        error "Unsupported Linux distribution."
+        exit 1
     fi
+
+    success "Required packages installed."
 }
 
-# ---------------- KVM CHECK ----------------
-check_kvm() {
+# ------------------------------------------------------------
+# KVM CHECK
+# ------------------------------------------------------------
+
+setup_kvm() {
 
     if [[ -e /dev/kvm ]]; then
+        success "/dev/kvm detected."
 
-        KVM_ACCEL="kvm"
-        success "KVM acceleration detected."
+        if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+            success "KVM is accessible."
+        else
+            warn "/dev/kvm exists but current user cannot access it."
+            warn "QEMU will fall back to software acceleration."
+        fi
 
+        return
+    fi
+
+    warn "/dev/kvm not available."
+    warn "VM will use software emulation. Performance will be lower."
+}
+
+# ------------------------------------------------------------
+# CPU DETECTION
+# ------------------------------------------------------------
+
+detect_cpu() {
+
+    local cpu_count
+
+    cpu_count="$(nproc 2>/dev/null || echo 1)"
+
+    # Keep at least 1 CPU for host.
+    if (( cpu_count > 1 )); then
+        VM_CPUS=$((cpu_count - 1))
     else
-
-        KVM_ACCEL="tcg"
-        warn "/dev/kvm not available."
-        warn "Using QEMU software acceleration."
-        warn "For best performance, run on a VPS/host with nested KVM."
-
-    fi
-}
-
-# ---------------- INSTALL KVM ----------------
-install_kvm() {
-
-    header
-
-    info "Installing KVM/QEMU..."
-    echo
-
-    pkg_install
-
-    echo
-
-    local required=(
-        qemu-system-x86_64
-        qemu-img
-        wget
-        cloud-localds
-    )
-
-    local missing=()
-
-    for cmd in "${required[@]}"; do
-        command -v "$cmd" >/dev/null 2>&1 || missing+=("$cmd")
-    done
-
-    if (( ${#missing[@]} )); then
-        error "Missing commands: ${missing[*]}"
-        return 1
+        VM_CPUS=1
     fi
 
-    check_kvm
-
-    echo
-    success "KVM installation completed."
-    echo
-
-    info "Opening KVM Maker..."
-    sleep 0.5
-
-    kvm_manager
+    info "Host CPU threads : $cpu_count"
+    info "VM CPU threads   : $VM_CPUS"
 }
 
-# ============================================================
-#                    VM CONFIGURATION
-# ============================================================
+# ------------------------------------------------------------
+# RAM DETECTION
+# ------------------------------------------------------------
 
-declare -A OS_OPTIONS=(
+detect_ram() {
 
-["Ubuntu 24.04"]="ubuntu|noble|https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img|ubuntu24|ubuntu"
+    local total_mb
+    total_mb="$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo)"
 
-["Ubuntu 22.04"]="ubuntu|jammy|https://cloud-images.ubuntu.com/jammy/current/jammy-server-cloudimg-amd64.img|ubuntu22|ubuntu"
-
-["Debian 12"]="debian|bookworm|https://cloud.debian.org/images/cloud/bookworm/latest/debian-12-generic-amd64.qcow2|debian12|debian"
-
-["Debian 11"]="debian|bullseye|https://cloud.debian.org/images/cloud/bullseye/latest/debian-11-generic-amd64.qcow2|debian11|debian"
-
-["Rocky Linux 9"]="rocky|9|https://download.rockylinux.org/pub/rocky/9/images/x86_64/Rocky-9-GenericCloud.latest.x86_64.qcow2|rocky9|rocky"
-
-["AlmaLinux 9"]="alma|9|https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-latest.x86_64.qcow2|alma9|alma"
-
-["CentOS Stream 9"]="centos|stream9|https://cloud.centos.org/centos/9-stream/x86_64/images/CentOS-Stream-GenericCloud-9-latest.x86_64.qcow2|centos9|centos"
-)
-
-# ---------------- VM LIST ----------------
-get_vms() {
-    find "$VM_DIR" -maxdepth 1 -type f -name "*.conf" \
-        -printf "%f\n" 2>/dev/null |
-        sed 's/\.conf$//' |
-        sort
-}
-
-# ---------------- LOAD CONFIG ----------------
-load_vm() {
-
-    local name="$1"
-    local file="$VM_DIR/$name.conf"
-
-    [[ -f "$file" ]] || return 1
-
-    unset VM_NAME OS_TYPE CODENAME IMG_URL
-    unset HOSTNAME USERNAME PASSWORD
-    unset DISK_SIZE MEMORY CPUS SSH_PORT
-    unset GUI_MODE PORT_FORWARDS
-    unset IMG_FILE SEED_FILE CREATED
-
-    # shellcheck disable=SC1090
-    source "$file"
-
-    return 0
-}
-
-# ---------------- SAVE CONFIG ----------------
-save_vm() {
-
-    local file="$VM_DIR/$VM_NAME.conf"
-
-    cat > "$file" <<EOF
-VM_NAME=$(printf '%q' "$VM_NAME")
-OS_TYPE=$(printf '%q' "$OS_TYPE")
-CODENAME=$(printf '%q' "$CODENAME")
-IMG_URL=$(printf '%q' "$IMG_URL")
-HOSTNAME=$(printf '%q' "$HOSTNAME")
-USERNAME=$(printf '%q' "$USERNAME")
-PASSWORD=$(printf '%q' "$PASSWORD")
-DISK_SIZE=$(printf '%q' "$DISK_SIZE")
-MEMORY=$(printf '%q' "$MEMORY")
-CPUS=$(printf '%q' "$CPUS")
-SSH_PORT=$(printf '%q' "$SSH_PORT")
-GUI_MODE=$(printf '%q' "$GUI_MODE")
-PORT_FORWARDS=$(printf '%q' "$PORT_FORWARDS")
-IMG_FILE=$(printf '%q' "$IMG_FILE")
-SEED_FILE=$(printf '%q' "$SEED_FILE")
-CREATED=$(printf '%q' "$CREATED")
-EOF
-}
-
-# ---------------- PORT CHECK ----------------
-port_free() {
-
-    local port="$1"
-
-    if ss -lnt 2>/dev/null |
-        awk '{print $4}' |
-        grep -Eq "[:.]${port}$"; then
-
-        return 1
+    # Reserve ~1GB for host when possible.
+    if (( total_mb > 2048 )); then
+        VM_RAM_MB=$((total_mb - 1024))
+    else
+        VM_RAM_MB=$((total_mb / 2))
     fi
 
-    return 0
+    (( VM_RAM_MB < 512 )) && VM_RAM_MB=512
+
+    info "Host RAM         : ${total_mb} MB"
+    info "VM RAM            : ${VM_RAM_MB} MB"
 }
 
-# ---------------- VM NAME VALIDATION ----------------
-valid_name() {
-    [[ "$1" =~ ^[a-zA-Z0-9_-]+$ ]]
+# ------------------------------------------------------------
+# DISK DETECTION
+# ------------------------------------------------------------
+
+detect_disk() {
+
+    local available_mb
+
+    available_mb="$(
+        df -Pm "$VM_DIR" 2>/dev/null |
+        awk 'NR==2 {print $4}'
+    )"
+
+    if [[ -z "$available_mb" ]]; then
+        available_mb=2048
+    fi
+
+    # Keep 2GB free for host.
+    if (( available_mb > 3072 )); then
+        VM_DISK_MB=$((available_mb - 2048))
+    else
+        VM_DISK_MB=$((available_mb / 2))
+    fi
+
+    # Minimum 10GB
+    if (( VM_DISK_MB < 10240 )); then
+        VM_DISK_MB=10240
+    fi
+
+    VM_DISK_GB=$((VM_DISK_MB / 1024))
+
+    info "Available disk    : ${available_mb} MB"
+    info "VM disk           : ${VM_DISK_GB} GB"
 }
 
-# ---------------- IMAGE SETUP ----------------
-setup_image() {
+# ------------------------------------------------------------
+# RESOURCE DETECTION
+# ------------------------------------------------------------
+
+detect_resources() {
+
+    echo
+    info "Detecting host resources..."
 
     mkdir -p "$VM_DIR"
 
-    info "Preparing disk image..."
+    detect_cpu
+    detect_ram
+    detect_disk
 
-    if [[ ! -f "$IMG_FILE" ]]; then
+    echo
+    success "Automatic resource allocation completed."
+}
 
-        info "Downloading OS image..."
-        wget -q --show-progress \
-            "$IMG_URL" \
-            -O "$IMG_FILE.tmp"
+# ------------------------------------------------------------
+# VM NAME
+# ------------------------------------------------------------
 
-        mv "$IMG_FILE.tmp" "$IMG_FILE"
+ask_vm_name() {
 
-    else
-        info "OS image already exists."
+    while true; do
+
+        input "Enter VM name [zyrocloud]: "
+        read -r VM_NAME
+
+        VM_NAME="${VM_NAME:-zyrocloud}"
+
+        if [[ ! "$VM_NAME" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+            error "Invalid VM name."
+            continue
+        fi
+
+        if [[ -e "$VM_DIR/$VM_NAME.conf" ]]; then
+            error "VM '$VM_NAME' already exists."
+            continue
+        fi
+
+        break
+    done
+}
+
+# ------------------------------------------------------------
+# PORT
+# ------------------------------------------------------------
+
+find_free_port() {
+
+    local port=2222
+
+    while ss -ltn 2>/dev/null | grep -q ":$port "; do
+        ((port++))
+    done
+
+    SSH_PORT="$port"
+}
+
+# ------------------------------------------------------------
+# DOWNLOAD UBUNTU
+# ------------------------------------------------------------
+
+download_ubuntu() {
+
+    mkdir -p "$VM_DIR"
+
+    IMG="$VM_DIR/$VM_NAME.qcow2"
+    SEED="$VM_DIR/$VM_NAME-seed.iso"
+
+    if [[ -f "$IMG" ]]; then
+        success "Ubuntu image already exists."
+        return
     fi
 
-    # Convert downloaded image to qcow2 if required
-    local format
+    info "Downloading Ubuntu 24.04 cloud image..."
 
-    format="$(qemu-img info "$IMG_FILE" 2>/dev/null |
-        awk -F': ' '/file format/ {print $2}' || true)"
+    wget \
+        --show-progress \
+        --progress=bar:force \
+        "$UBUNTU_URL" \
+        -O "$IMG.tmp"
 
-    if [[ "$format" != "qcow2" ]]; then
+    mv "$IMG.tmp" "$IMG"
 
-        info "Converting image to QCOW2..."
+    success "Ubuntu image downloaded."
+}
 
-        qemu-img convert \
-            -p \
-            -f "$format" \
-            -O qcow2 \
-            "$IMG_FILE" \
-            "$IMG_FILE.converted"
+# ------------------------------------------------------------
+# RESIZE DISK
+# ------------------------------------------------------------
 
-        mv "$IMG_FILE.converted" "$IMG_FILE"
-    fi
+resize_disk() {
 
-    info "Setting disk size: $DISK_SIZE"
+    info "Expanding Ubuntu disk to ${VM_DISK_GB}G..."
 
-    qemu-img resize "$IMG_FILE" "$DISK_SIZE" >/dev/null 2>&1 || true
+    qemu-img resize "$IMG" "${VM_DISK_GB}G" >/dev/null
 
-    # Cloud-init
-    local hash
-    hash="$(openssl passwd -6 "$PASSWORD")"
+    success "Disk size: ${VM_DISK_GB}G"
+}
 
-    cat > "$VM_DIR/.user-data" <<EOF
+# ------------------------------------------------------------
+# CLOUD INIT
+# ------------------------------------------------------------
+
+create_cloud_init() {
+
+    local workdir
+
+    workdir="$(mktemp -d)"
+
+    cat > "$workdir/user-data" <<EOF
 #cloud-config
 
-hostname: $HOSTNAME
+hostname: $VM_NAME
+
 manage_etc_hosts: true
+
+ssh_pwauth: true
+
+disable_root: false
 
 users:
   - default
-  - name: $USERNAME
-    groups: sudo
-    sudo: ALL=(ALL) NOPASSWD:ALL
-    shell: /bin/bash
-    lock_passwd: false
-    passwd: $hash
-
-ssh_pwauth: true
-disable_root: false
 
 chpasswd:
   expire: false
+  list:
+    - root:root
+
+ssh_authorized_keys: []
 
 runcmd:
   - systemctl enable ssh || true
   - systemctl restart ssh || true
 EOF
 
-    cat > "$VM_DIR/.meta-data" <<EOF
-instance-id: $VM_NAME
-local-hostname: $HOSTNAME
+    cat > "$workdir/meta-data" <<EOF
+instance-id: zyrocloud-$VM_NAME
+local-hostname: $VM_NAME
 EOF
 
+    rm -f "$SEED"
+
     cloud-localds \
-        "$SEED_FILE" \
-        "$VM_DIR/.user-data" \
-        "$VM_DIR/.meta-data"
+        "$SEED" \
+        "$workdir/user-data" \
+        "$workdir/meta-data"
 
-    rm -f \
-        "$VM_DIR/.user-data" \
-        "$VM_DIR/.meta-data"
+    rm -rf "$workdir"
 
-    success "VM image prepared."
+    chmod 600 "$SEED"
+
+    success "Cloud-init configured."
 }
 
-# ============================================================
-#                    CREATE VM
-# ============================================================
+# ------------------------------------------------------------
+# CONFIG
+# ------------------------------------------------------------
 
-create_vm() {
+save_config() {
 
-    header
+    cat > "$VM_DIR/$VM_NAME.conf" <<EOF
+VM_NAME="$VM_NAME"
+IMG="$IMG"
+SEED="$SEED"
+RAM="$VM_RAM_MB"
+CPUS="$VM_CPUS"
+DISK="$VM_DISK_GB"
+SSH_PORT="$SSH_PORT"
+USERNAME="root"
+PASSWORD="root"
+CREATED="$(date '+%Y-%m-%d %H:%M:%S')"
+EOF
 
-    echo -e "${P}Select Operating System:${N}"
-    echo
-
-    local names=()
-    local i=1
-
-    for name in "${!OS_OPTIONS[@]}"; do
-        names[$i]="$name"
-        echo -e "  ${P}$i)${N} $name"
-        ((i++))
-    done
-
-    echo
-
-    local choice
-
-    while true; do
-
-        read -rp "$(echo -e "${LP}OS: ${N}")" choice
-
-        if [[ "$choice" =~ ^[0-9]+$ ]] &&
-            (( choice >= 1 && choice < i )); then
-            break
-        fi
-
-        error "Invalid selection."
-    done
-
-    local os="${names[$choice]}"
-
-    IFS='|' read -r \
-        OS_TYPE \
-        CODENAME \
-        IMG_URL \
-        DEFAULT_HOSTNAME \
-        DEFAULT_USERNAME \
-        <<< "${OS_OPTIONS[$os]}"
-
-    echo
-
-    # Name
-    while true; do
-
-        read -rp "$(echo -e "${LP}VM Name [$DEFAULT_HOSTNAME]: ${N}")" VM_NAME
-        VM_NAME="${VM_NAME:-$DEFAULT_HOSTNAME}"
-
-        if ! valid_name "$VM_NAME"; then
-            error "Invalid VM name."
-            continue
-        fi
-
-        if [[ -f "$VM_DIR/$VM_NAME.conf" ]]; then
-            error "VM already exists."
-            continue
-        fi
-
-        break
-    done
-
-    read -rp "$(echo -e "${LP}Hostname [$VM_NAME]: ${N}")" HOSTNAME
-    HOSTNAME="${HOSTNAME:-$VM_NAME}"
-
-    read -rp "$(echo -e "${LP}Username [$DEFAULT_USERNAME]: ${N}")" USERNAME
-    USERNAME="${USERNAME:-$DEFAULT_USERNAME}"
-
-    read -rsp "$(echo -e "${LP}Password: ${N}")" PASSWORD
-    echo
-
-    if [[ -z "$PASSWORD" ]]; then
-        PASSWORD="$DEFAULT_USERNAME"
-    fi
-
-    read -rp "$(echo -e "${LP}Disk size [20G]: ${N}")" DISK_SIZE
-    DISK_SIZE="${DISK_SIZE:-20G}"
-
-    read -rp "$(echo -e "${LP}RAM MB [2048]: ${N}")" MEMORY
-    MEMORY="${MEMORY:-2048}"
-
-    read -rp "$(echo -e "${LP}CPU cores [2]: ${N}")" CPUS
-    CPUS="${CPUS:-2}"
-
-    while true; do
-
-        read -rp "$(echo -e "${LP}SSH port [2222]: ${N}")" SSH_PORT
-        SSH_PORT="${SSH_PORT:-2222}"
-
-        if port_free "$SSH_PORT"; then
-            break
-        fi
-
-        error "Port $SSH_PORT is already in use."
-    done
-
-    # VPS default = no GUI
-    GUI_MODE=false
-
-    read -rp "$(echo -e "${LP}Enable GUI? (y/N): ${N}")" gui
-
-    if [[ "$gui" =~ ^[Yy]$ ]]; then
-        GUI_MODE=true
-    fi
-
-    read -rp "$(echo -e "${LP}Extra ports (host:guest,host:guest): ${N}")" PORT_FORWARDS
-
-    IMG_FILE="$VM_DIR/$VM_NAME.qcow2"
-    SEED_FILE="$VM_DIR/$VM_NAME-seed.iso"
-    CREATED="$(date '+%Y-%m-%d %H:%M:%S')"
-
-    echo
-
-    setup_image
-    save_vm
-
-    success "VM '$VM_NAME' created successfully."
+    chmod 600 "$VM_DIR/$VM_NAME.conf"
 }
 
-# ============================================================
-#                    VM PID MANAGEMENT
-# ============================================================
+# ------------------------------------------------------------
+# KVM ARGUMENT
+# ------------------------------------------------------------
 
-pid_file() {
-    echo "$STATE_DIR/$1.pid"
-}
+get_acceleration() {
 
-get_pid() {
-
-    local vm="$1"
-    local file
-    file="$(pid_file "$vm")"
-
-    [[ -f "$file" ]] || return 1
-
-    local pid
-    pid="$(cat "$file" 2>/dev/null || true)"
-
-    [[ -n "$pid" ]] || return 1
-
-    if kill -0 "$pid" 2>/dev/null; then
-        echo "$pid"
-        return 0
-    fi
-
-    rm -f "$file"
-    return 1
-}
-
-vm_running() {
-    get_pid "$1" >/dev/null 2>&1
-}
-
-# ============================================================
-#                    BUILD QEMU COMMAND
-# ============================================================
-
-build_qemu() {
-
-    local vm="$1"
-
-    load_vm "$vm" || return 1
-
-    QEMU_CMD=(
-
-        qemu-system-x86_64
-
-        -name "$VM_NAME"
-
-        -machine "type=q35,accel=$KVM_ACCEL"
-
-        -cpu host
-
-        -enable-kvm
-
-        -m "$MEMORY"
-
-        -smp "$CPUS"
-
-        -drive "file=$IMG_FILE,if=virtio,format=qcow2,cache=none,aio=native"
-
-        -drive "file=$SEED_FILE,if=virtio,format=raw,readonly=on"
-
-        -boot order=c
-
-        -nodefaults
-
-        -netdev "user,id=net0,hostfwd=tcp::$SSH_PORT-:22"
-
-        -device "virtio-net-pci,netdev=net0"
-
-        -device virtio-balloon-pci
-
-        -object rng-random,filename=/dev/urandom,id=rng0
-
-        -device virtio-rng-pci,rng=rng0
-
-        -monitor none
-    )
-
-    # If KVM is unavailable, remove -enable-kvm
-    if [[ "$KVM_ACCEL" != "kvm" ]]; then
-
-        local new_cmd=()
-
-        for arg in "${QEMU_CMD[@]}"; do
-            [[ "$arg" == "-enable-kvm" ]] && continue
-            new_cmd+=("$arg")
-        done
-
-        QEMU_CMD=("${new_cmd[@]}")
-    fi
-
-    # Extra ports
-    if [[ -n "${PORT_FORWARDS:-}" ]]; then
-
-        local index=1
-
-        IFS=',' read -ra forwards <<< "$PORT_FORWARDS"
-
-        for f in "${forwards[@]}"; do
-
-            [[ "$f" == *:* ]] || continue
-
-            local hp="${f%%:*}"
-            local gp="${f##*:}"
-
-            if ! port_free "$hp"; then
-                warn "Host port $hp already used. Skipping."
-                continue
-            fi
-
-            QEMU_CMD+=(
-                -netdev "user,id=net$index,hostfwd=tcp::$hp-:$gp"
-            )
-
-            # One virtio NIC is enough; extra netdev isn't needed.
-            ((index++))
-        done
-    fi
-
-    if [[ "$GUI_MODE" == true ]]; then
-
-        QEMU_CMD+=(
-            -vga virtio
-        )
-
+    if [[ -e /dev/kvm ]]; then
+        echo "-enable-kvm"
     else
-
-        QEMU_CMD+=(
-            -nographic
-            -serial mon:stdio
-        )
-
+        echo ""
     fi
 }
 
-# ============================================================
-#                    START VM
-# ============================================================
+# ------------------------------------------------------------
+# START VM
+# ------------------------------------------------------------
 
 start_vm() {
 
-    local vm="$1"
+    local name="$1"
 
-    load_vm "$vm" || return 1
-
-    if vm_running "$vm"; then
-        warn "VM '$vm' is already running."
-        return 0
+    if [[ ! -f "$VM_DIR/$name.conf" ]]; then
+        error "VM '$name' not found."
+        return 1
     fi
 
-    [[ -f "$IMG_FILE" ]] ||
-        die "Disk image missing."
+    # shellcheck disable=SC1090
+    source "$VM_DIR/$name.conf"
 
-    [[ -f "$SEED_FILE" ]] ||
-        setup_image
-
-    build_qemu "$vm"
-
-    local pid
-    local pf
-    pf="$(pid_file "$vm")"
-
-    echo
-    echo -e "${G}VM:${N}       $VM_NAME"
-    echo -e "${G}SSH:${N}      ssh -p $SSH_PORT $USERNAME@localhost"
-    echo -e "${G}RAM:${N}      ${MEMORY}MB"
-    echo -e "${G}CPU:${N}      $CPUS"
-    echo -e "${G}KVM:${N}      $KVM_ACCEL"
-    echo
-
-    info "Starting VM..."
-
-    # Headless VM runs in background.
-    if [[ "$GUI_MODE" == false ]]; then
-
-        nohup "${QEMU_CMD[@]}" \
-            > "$STATE_DIR/$VM_NAME.log" 2>&1 &
-
-        pid=$!
-
-        echo "$pid" > "$pf"
-
-        sleep 1
-
-        if kill -0 "$pid" 2>/dev/null; then
-            success "VM started. PID: $pid"
-        else
-            rm -f "$pf"
-            error "VM failed to start."
-            tail -n 20 "$STATE_DIR/$VM_NAME.log" 2>/dev/null || true
-            return 1
-        fi
-
-    else
-
-        "${QEMU_CMD[@]}"
-    fi
-}
-
-# ============================================================
-#                    STOP VM
-# ============================================================
-
-stop_vm() {
-
-    local vm="$1"
-
-    local pid
-
-    pid="$(get_pid "$vm" 2>/dev/null || true)"
-
-    if [[ -z "$pid" ]]; then
-        warn "VM '$vm' is not running."
+    if pgrep -f "qemu-system-x86_64.*$IMG" >/dev/null 2>&1; then
+        warn "VM '$name' is already running."
         return
     fi
 
-    info "Stopping VM..."
+    local accel
+    accel="$(get_acceleration)"
 
-    kill -TERM "$pid" 2>/dev/null || true
+    info "Starting VM: $name"
+
+    info "RAM : ${RAM}MB"
+    info "CPU : ${CPUS}"
+    info "Disk: ${DISK}GB"
+    info "SSH : $SSH_PORT"
+
+    local log_file="$VM_DIR/$name.log"
+
+    nohup qemu-system-x86_64 \
+        $accel \
+        -machine accel=kvm:tcg \
+        -cpu host \
+        -m "$RAM" \
+        -smp "$CPUS" \
+        -drive "file=$IMG,if=virtio,format=qcow2,cache=writeback,aio=native" \
+        -drive "file=$SEED,if=virtio,format=raw,readonly=on" \
+        -netdev "user,id=net0,hostfwd=tcp::${SSH_PORT}-:22" \
+        -device virtio-net-pci,netdev=net0 \
+        -device virtio-balloon-pci \
+        -object rng-random,filename=/dev/urandom,id=rng0 \
+        -device virtio-rng-pci,rng=rng0 \
+        -nographic \
+        -serial "file:$VM_DIR/$name-console.log" \
+        -monitor "unix:$VM_DIR/$name-monitor.sock,server,nowait" \
+        > "$log_file" 2>&1 &
+
+    echo $! > "$VM_DIR/$name.pid"
+
+    sleep 3
+
+    if kill -0 "$(cat "$VM_DIR/$name.pid")" 2>/dev/null; then
+        success "VM '$name' started."
+        echo
+        echo "SSH:"
+        echo "  ssh -p $SSH_PORT root@127.0.0.1"
+        echo
+        echo "Username: root"
+        echo "Password: root"
+        echo
+        echo "Console log:"
+        echo "  $VM_DIR/$name-console.log"
+    else
+        error "VM failed to start."
+        echo
+        tail -30 "$log_file" 2>/dev/null || true
+        return 1
+    fi
+}
+
+# ------------------------------------------------------------
+# STOP VM
+# ------------------------------------------------------------
+
+stop_vm() {
+
+    local name="$1"
+
+    if [[ ! -f "$VM_DIR/$name.conf" ]]; then
+        error "VM not found."
+        return
+    fi
+
+    if [[ ! -f "$VM_DIR/$name.pid" ]]; then
+        warn "VM is not running."
+        return
+    fi
+
+    local pid
+    pid="$(cat "$VM_DIR/$name.pid")"
+
+    if ! kill -0 "$pid" 2>/dev/null; then
+        rm -f "$VM_DIR/$name.pid"
+        warn "VM is already stopped."
+        return
+    fi
+
+    info "Stopping $name..."
+
+    kill "$pid" 2>/dev/null || true
 
     for _ in {1..10}; do
-
         if ! kill -0 "$pid" 2>/dev/null; then
             break
         fi
-
-        sleep 0.3
+        sleep 1
     done
 
     if kill -0 "$pid" 2>/dev/null; then
-        warn "Forcing VM shutdown..."
-        kill -KILL "$pid" 2>/dev/null || true
+        warn "Graceful stop failed. Force stopping..."
+        kill -9 "$pid" 2>/dev/null || true
     fi
 
-    rm -f "$(pid_file "$vm")"
+    rm -f "$VM_DIR/$name.pid"
 
     success "VM stopped."
 }
 
-# ============================================================
-#                    VM INFO
-# ============================================================
+# ------------------------------------------------------------
+# STATUS
+# ------------------------------------------------------------
 
-vm_info() {
+vm_running() {
 
-    local vm="$1"
+    local name="$1"
 
-    load_vm "$vm" || return 1
+    [[ -f "$VM_DIR/$name.pid" ]] || return 1
 
-    local status="Stopped"
+    local pid
+    pid="$(cat "$VM_DIR/$name.pid" 2>/dev/null || true)"
 
-    vm_running "$vm" && status="Running"
-
-    echo
-    echo -e "${P}════════════════ VM INFO ════════════════${N}"
-
-    echo -e "${C}Name:${N}       $VM_NAME"
-    echo -e "${C}OS:${N}         $OS_TYPE $CODENAME"
-    echo -e "${C}Hostname:${N}   $HOSTNAME"
-    echo -e "${C}Username:${N}   $USERNAME"
-    echo -e "${C}SSH Port:${N}   $SSH_PORT"
-    echo -e "${C}RAM:${N}        ${MEMORY}MB"
-    echo -e "${C}CPU:${N}        $CPUS"
-    echo -e "${C}Disk:${N}       $DISK_SIZE"
-    echo -e "${C}Status:${N}     $status"
-    echo -e "${C}KVM:${N}        $KVM_ACCEL"
-    echo -e "${C}GUI:${N}        $GUI_MODE"
-    echo -e "${C}Created:${N}    $CREATED"
-
-    echo -e "${P}════════════════════════════════════════${N}"
-    echo
-
-    pause
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
 }
 
-# ============================================================
-#                    DELETE VM
-# ============================================================
+# ------------------------------------------------------------
+# VM LIST
+# ------------------------------------------------------------
+
+get_vms() {
+
+    find "$VM_DIR" \
+        -maxdepth 1 \
+        -type f \
+        -name "*.conf" \
+        -printf "%f\n" 2>/dev/null |
+        sed 's/\.conf$//' |
+        sort
+}
+
+# ------------------------------------------------------------
+# VM INFO
+# ------------------------------------------------------------
+
+show_info() {
+
+    local name="$1"
+
+    if [[ ! -f "$VM_DIR/$name.conf" ]]; then
+        error "VM not found."
+        return
+    fi
+
+    # shellcheck disable=SC1090
+    source "$VM_DIR/$name.conf"
+
+    echo
+    echo "=============================================="
+    echo "             ZYROCLOUD VM INFO"
+    echo "=============================================="
+    echo "Name       : $VM_NAME"
+    echo "OS         : Ubuntu 24.04"
+    echo "Username   : root"
+    echo "Password   : root"
+    echo "RAM        : ${RAM} MB"
+    echo "CPU        : $CPUS"
+    echo "Disk       : ${DISK} GB"
+    echo "SSH Port   : $SSH_PORT"
+    echo "Status     : $(vm_running "$name" && echo Running || echo Stopped)"
+    echo "Created    : $CREATED"
+    echo "=============================================="
+}
+
+# ------------------------------------------------------------
+# DELETE
+# ------------------------------------------------------------
 
 delete_vm() {
 
-    local vm="$1"
+    local name="$1"
 
-    load_vm "$vm" || return 1
+    if [[ ! -f "$VM_DIR/$name.conf" ]]; then
+        error "VM not found."
+        return
+    fi
+
+    if vm_running "$name"; then
+        stop_vm "$name"
+    fi
 
     echo
-    warn "This will delete VM '$vm' and its disk."
+    warn "This will delete VM '$name' and its disk."
 
-    read -rp "$(echo -e "${R}Type DELETE to continue: ${N}")" confirm
+    read -rp "Type DELETE to confirm: " confirm
 
-    [[ "$confirm" == "DELETE" ]] || {
+    if [[ "$confirm" != "DELETE" ]]; then
         warn "Cancelled."
         return
-    }
-
-    vm_running "$vm" && stop_vm "$vm"
+    fi
 
     rm -f \
-        "$VM_DIR/$vm.conf" \
-        "$VM_DIR/$vm.qcow2" \
-        "$VM_DIR/$vm.img" \
-        "$VM_DIR/$vm-seed.iso" \
-        "$STATE_DIR/$vm.pid" \
-        "$STATE_DIR/$vm.log"
+        "$VM_DIR/$name.conf" \
+        "$VM_DIR/$name.qcow2" \
+        "$VM_DIR/$name-seed.iso" \
+        "$VM_DIR/$name.pid" \
+        "$VM_DIR/$name.log" \
+        "$VM_DIR/$name-console.log" \
+        "$VM_DIR/$name-monitor.sock"
 
-    success "VM deleted."
+    success "VM '$name' deleted."
 }
 
-# ============================================================
-#                    RESIZE VM
-# ============================================================
+# ------------------------------------------------------------
+# CREATE VM
+# ------------------------------------------------------------
 
-resize_vm() {
-
-    local vm="$1"
-
-    load_vm "$vm" || return 1
-
-    if vm_running "$vm"; then
-        error "Stop the VM first."
-        return
-    fi
+create_vm() {
 
     echo
+    echo "=============================================="
+    echo "          CREATE ZYROCLOUD VM"
+    echo "=============================================="
 
-    read -rp "$(echo -e "${LP}New disk size [$DISK_SIZE]: ${N}")" new_size
-    new_size="${new_size:-$DISK_SIZE}"
+    ask_vm_name
 
-    if ! [[ "$new_size" =~ ^[0-9]+[GgMm]$ ]]; then
-        error "Invalid size."
-        return
+    find_free_port
+    detect_resources
+    download_ubuntu
+    resize_disk
+    create_cloud_init
+    save_config
+
+    echo
+    success "VM '$VM_NAME' created successfully."
+    echo
+    echo "Resources:"
+    echo "  CPU : $VM_CPUS"
+    echo "  RAM : ${VM_RAM_MB} MB"
+    echo "  Disk: ${VM_DISK_GB} GB"
+    echo
+    echo "Login:"
+    echo "  User: root"
+    echo "  Pass: root"
+    echo
+    echo "SSH:"
+    echo "  ssh -p $SSH_PORT root@127.0.0.1"
+    echo
+
+    read -rp "Start VM now? [Y/n]: " answer
+    answer="${answer:-Y}"
+
+    if [[ "$answer" =~ ^[Yy]$ ]]; then
+        start_vm "$VM_NAME"
     fi
-
-    qemu-img resize "$IMG_FILE" "$new_size"
-
-    DISK_SIZE="$new_size"
-
-    save_vm
-
-    success "Disk resized to $new_size."
 }
 
-# ============================================================
-#                    PERFORMANCE
-# ============================================================
+# ------------------------------------------------------------
+# AUTO START EXISTING VMS
+# ------------------------------------------------------------
 
-performance() {
+auto_start_vms() {
 
-    local vm="$1"
+    local found=0
 
-    load_vm "$vm" || return 1
+    while IFS= read -r name; do
 
-    local pid
+        [[ -z "$name" ]] && continue
 
-    pid="$(get_pid "$vm" 2>/dev/null || true)"
+        found=1
 
-    echo
-    echo -e "${P}════════════ PERFORMANCE ════════════${N}"
+        if ! vm_running "$name"; then
+            info "Auto-starting existing VM: $name"
+            start_vm "$name" || warn "Could not start $name"
+        fi
 
-    if [[ -n "$pid" ]]; then
+    done < <(get_vms)
 
-        ps -p "$pid" \
-            -o pid,%cpu,%mem,rss,vsz,etime \
-            --no-headers
-
-        echo
-
-        echo "Host memory:"
-        free -h
-
-    else
-
-        echo -e "${Y}VM is stopped.${N}"
-        echo
-        echo "Configured RAM : ${MEMORY}MB"
-        echo "Configured CPU : $CPUS"
-        echo "Configured Disk: $DISK_SIZE"
-
+    if (( found == 0 )); then
+        info "No existing VMs found."
     fi
-
-    echo -e "${P}═════════════════════════════════════${N}"
-
-    pause
 }
 
-# ============================================================
-#                    VM SELECTOR
-# ============================================================
+# ------------------------------------------------------------
+# MAIN MENU
+# ------------------------------------------------------------
 
-choose_vm() {
-
-    local action="$1"
-
-    mapfile -t VMS < <(get_vms)
-
-    if (( ${#VMS[@]} == 0 )); then
-        warn "No VMs available."
-        pause
-        return
-    fi
-
-    echo
-
-    for i in "${!VMS[@]}"; do
-
-        local state="OFF"
-
-        vm_running "${VMS[$i]}" &&
-            state="ON"
-
-        echo -e "  ${P}$((i+1)))${N} ${VMS[$i]} ${G}[$state]${N}"
-
-    done
-
-    echo
-
-    read -rp "$(echo -e "${LP}VM number: ${N}")" num
-
-    if ! [[ "$num" =~ ^[0-9]+$ ]] ||
-       (( num < 1 || num > ${#VMS[@]} )); then
-
-        error "Invalid VM."
-        pause
-        return
-    fi
-
-    "$action" "${VMS[$((num-1))]}"
-}
-
-# ============================================================
-#                    KVM MANAGER
-# ============================================================
-
-kvm_manager() {
-
-    check_kvm
+main_menu() {
 
     while true; do
 
-        header
+        clear
 
-        mapfile -t VMS < <(get_vms)
-
-        echo -e "${D}VM Directory:${N} $VM_DIR"
-        echo -e "${D}Acceleration:${N} $KVM_ACCEL"
+        echo "=============================================================="
+        echo "              ZYROCLOUD KVM MANAGER"
+        echo "=============================================================="
+        echo
+        echo "Ubuntu 24.04 | KVM | Auto RAM | Auto CPU | Auto Disk"
         echo
 
-        if (( ${#VMS[@]} )); then
+        local vms=()
+        mapfile -t vms < <(get_vms)
 
-            echo -e "${P}Virtual Machines:${N}"
+        if (( ${#vms[@]} > 0 )); then
 
-            for i in "${!VMS[@]}"; do
+            echo "Existing VMs:"
+            echo
 
-                local state="Stopped"
+            local i=1
 
-                vm_running "${VMS[$i]}" &&
-                    state="Running"
+            for vm in "${vms[@]}"; do
 
-                printf "  ${P}%2d)${N} %-25s ${C}%s${N}\n" \
-                    "$((i+1))" \
-                    "${VMS[$i]}" \
-                    "$state"
+                local status="STOPPED"
+
+                if vm_running "$vm"; then
+                    status="RUNNING"
+                fi
+
+                printf "  %2d) %-25s [%s]\n" \
+                    "$i" \
+                    "$vm" \
+                    "$status"
+
+                ((i++))
             done
 
             echo
         else
-            echo -e "${D}No VMs created.${N}"
+            echo "No VMs created."
             echo
         fi
 
-        echo -e "${P}════════════════ KVM MAKER ════════════════${N}"
-
-        echo -e "  ${P}1)${N} Create VM"
-
-        if (( ${#VMS[@]} )); then
-            echo -e "  ${P}2)${N} Start VM"
-            echo -e "  ${P}3)${N} Stop VM"
-            echo -e "  ${P}4)${N} VM Info"
-            echo -e "  ${P}5)${N} Delete VM"
-            echo -e "  ${P}6)${N} Resize Disk"
-            echo -e "  ${P}7)${N} Performance"
-        fi
-
-        echo -e "  ${R}0)${N} Exit"
+        echo "--------------------------------------------------------------"
+        echo "1) Create Ubuntu VM"
+        echo "2) Start VM"
+        echo "3) Stop VM"
+        echo "4) VM Info"
+        echo "5) Delete VM"
+        echo "6) Auto-start all VMs"
+        echo "7) Host resources"
+        echo "0) Exit"
+        echo "--------------------------------------------------------------"
         echo
 
-        read -rp "$(echo -e "${LP}Option: ${N}")" opt
+        input "Choose: "
+        read -r choice
 
-        case "$opt" in
+        case "$choice" in
 
             1)
                 create_vm
-                pause
+                pause_screen
                 ;;
 
             2)
-                choose_vm start_vm
+                if (( ${#vms[@]} == 0 )); then
+                    warn "No VMs available."
+                    pause_screen
+                    continue
+                fi
+
+                input "VM number: "
+                read -r num
+
+                if [[ "$num" =~ ^[0-9]+$ ]] &&
+                   (( num >= 1 && num <= ${#vms[@]} )); then
+
+                    start_vm "${vms[$((num-1))]}"
+
+                else
+                    error "Invalid VM number."
+                fi
+
+                pause_screen
                 ;;
 
             3)
-                choose_vm stop_vm
+                if (( ${#vms[@]} == 0 )); then
+                    warn "No VMs available."
+                    pause_screen
+                    continue
+                fi
+
+                input "VM number: "
+                read -r num
+
+                if [[ "$num" =~ ^[0-9]+$ ]] &&
+                   (( num >= 1 && num <= ${#vms[@]} )); then
+
+                    stop_vm "${vms[$((num-1))]}"
+
+                else
+                    error "Invalid VM number."
+                fi
+
+                pause_screen
                 ;;
 
             4)
-                choose_vm vm_info
+                if (( ${#vms[@]} == 0 )); then
+                    warn "No VMs available."
+                    pause_screen
+                    continue
+                fi
+
+                input "VM number: "
+                read -r num
+
+                if [[ "$num" =~ ^[0-9]+$ ]] &&
+                   (( num >= 1 && num <= ${#vms[@]} )); then
+
+                    show_info "${vms[$((num-1))]}"
+
+                else
+                    error "Invalid VM number."
+                fi
+
+                pause_screen
                 ;;
 
             5)
-                choose_vm delete_vm
+                if (( ${#vms[@]} == 0 )); then
+                    warn "No VMs available."
+                    pause_screen
+                    continue
+                fi
+
+                input "VM number: "
+                read -r num
+
+                if [[ "$num" =~ ^[0-9]+$ ]] &&
+                   (( num >= 1 && num <= ${#vms[@]} )); then
+
+                    delete_vm "${vms[$((num-1))]}"
+
+                else
+                    error "Invalid VM number."
+                fi
+
+                pause_screen
                 ;;
 
             6)
-                choose_vm resize_vm
-                pause
+                auto_start_vms
+                pause_screen
                 ;;
 
             7)
-                choose_vm performance
+                detect_resources
+                pause_screen
                 ;;
 
             0)
-                success "Returning to main menu."
-                return
-                ;;
-
-            *)
-                error "Invalid option."
-                sleep 0.4
-                ;;
-
-        esac
-    done
-}
-
-# ============================================================
-#                    MAIN MENU
-# ============================================================
-
-main_menu() {
-
-    check_root
-
-    while true; do
-
-        header
-
-        echo
-        echo -e "${P}╔════════════════════════════════════════════════════════════╗${N}"
-        echo -e "${P}║${N}              ${W}ZyroCloud Installer${N}                     ${P}║${N}"
-        echo -e "${P}║${N}                   ${W}KVM MAKER${N}                            ${P}║${N}"
-        echo -e "${P}╚════════════════════════════════════════════════════════════╝${N}"
-
-        echo
-        echo -e "  ${P}1)${N} Install KVM"
-        echo -e "  ${R}0)${N} Exit"
-        echo
-
-        read -rp "$(echo -e "${LP}Select option: ${N}")" option
-
-        case "$option" in
-
-            1)
-                fast_anim "Starting ZyroCloud KVM Installer"
-                install_kvm
-                ;;
-
-            0)
-                echo
-                fast_anim "Exiting"
-                echo -e "${G}Goodbye!${N}"
+                success "Goodbye."
                 exit 0
                 ;;
 
             *)
-                error "Please select 1 or 0."
-                sleep 0.5
+                error "Invalid option."
+                sleep 1
                 ;;
 
         esac
     done
 }
 
-# ============================================================
-#                    CLEANUP
-# ============================================================
+# ------------------------------------------------------------
+# INITIAL SETUP
+# ------------------------------------------------------------
 
-cleanup() {
-    rm -f \
-        "$VM_DIR/.user-data" \
-        "$VM_DIR/.meta-data" \
-        "$VM_DIR"/*.tmp 2>/dev/null || true
-}
+mkdir -p "$VM_DIR"
 
-trap cleanup EXIT
+install_dependencies
+setup_kvm
 
-# ============================================================
-#                    START
-# ============================================================
+# ------------------------------------------------------------
+# OPTIONAL AUTO START
+# ------------------------------------------------------------
+
+if [[ "${AUTO_START_VMS:-yes}" == "yes" ]]; then
+    auto_start_vms
+fi
 
 main_menu
