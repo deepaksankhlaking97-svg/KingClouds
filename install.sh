@@ -1,338 +1,505 @@
 #!/usr/bin/env bash
 
 # ============================================================
-#                 👑 KINGCLOUD INSTALLER HUB
-#              Premium Bash GUI • Animated UI
+#                  👑 KINGCLOUD HUB
+#              Premium Installer Terminal
 # ============================================================
 
 set -u
 
-# ---------- COLORS ----------
-RESET="\033[0m"
-BOLD="\033[1m"
-DIM="\033[2m"
+# ---------------- COLORS ----------------
 
-PURPLE="\033[38;5;141m"
-CYAN="\033[38;5;51m"
-BLUE="\033[38;5;75m"
-GREEN="\033[38;5;82m"
-YELLOW="\033[38;5;220m"
-RED="\033[38;5;203m"
-WHITE="\033[38;5;255m"
-GRAY="\033[38;5;245m"
+RESET='\033[0m'
+BOLD='\033[1m'
 
-# ---------- TERMINAL ----------
-clear_screen() {
-    printf "\033[2J\033[H"
-}
+PURPLE='\033[38;5;141m'
+CYAN='\033[38;5;51m'
+GREEN='\033[38;5;82m'
+YELLOW='\033[38;5;220m'
+RED='\033[38;5;203m'
+WHITE='\033[38;5;255m'
+GRAY='\033[38;5;245m'
+
+# ---------------- CONFIG ----------------
+
+LOG_DIR="/tmp/kingcloud"
+
+mkdir -p "$LOG_DIR"
+
+# ---------------- TERMINAL ----------------
 
 hide_cursor() {
-    printf "\033[?25l"
+    printf '\033[?25l'
 }
 
 show_cursor() {
-    printf "\033[?25h"
+    printf '\033[?25h'
 }
 
-trap show_cursor EXIT
-trap 'show_cursor; exit 0' INT TERM
-
-# ---------- HELPERS ----------
-line() {
-    printf "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
+clear_screen() {
+    printf '\033[2J\033[H'
 }
+
+trap 'show_cursor' EXIT
+trap 'show_cursor; exit 130' INT TERM
+
+# ---------------- CENTER ----------------
 
 center() {
     local text="$1"
     local width
+    local length
+    local padding
+
     width=$(tput cols 2>/dev/null || echo 80)
-    local len=${#text}
-    local pad=$(( (width - len) / 2 ))
+    length=${#text}
 
-    (( pad < 0 )) && pad=0
-    printf "%*s%b\n" "$pad" "" "$text"
+    padding=$(( (width - length) / 2 ))
+
+    if [ "$padding" -lt 0 ]; then
+        padding=0
+    fi
+
+    printf '%*s%b\n' "$padding" '' "$text"
 }
 
-pause_screen() {
+# ---------------- LINE ----------------
+
+line() {
+    printf '%b\n' \
+        "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+}
+
+# ---------------- LOGO ----------------
+
+logo() {
     echo
-    printf "${GRAY}Press ENTER to return to KINGCLOUD menu...${RESET}"
-    read -r
+
+    center "${PURPLE}${BOLD}██╗  ██╗██╗███╗   ██╗ ██████╗${RESET}"
+    center "${PURPLE}${BOLD}██║ ██╔╝██║████╗  ██║██╔════╝${RESET}"
+    center "${CYAN}${BOLD}█████╔╝ ██║██╔██╗ ██║██║  ███╗${RESET}"
+    center "${CYAN}${BOLD}██╔═██╗ ██║██║╚██╗██║██║   ██║${RESET}"
+    center "${PURPLE}${BOLD}██║  ██╗██║██║ ╚████║╚██████╔╝${RESET}"
+    center "${PURPLE}${BOLD}╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝${RESET}"
+
+    echo
+
+    center "${WHITE}${BOLD}C L O U D   I N S T A L L E R${RESET}"
+    center "${GRAY}Premium KINGCLOUD Terminal${RESET}"
+
+    echo
 }
+
+# ---------------- SPINNER ----------------
 
 spinner() {
     local text="$1"
-    local duration="${2:-2}"
-    local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
-    local end=$((SECONDS + duration))
-    local i=0
 
-    while [ "$SECONDS" -lt "$end" ]; do
-        printf "\r${CYAN}${frames[$((i % ${#frames[@]}))]}${RESET} ${WHITE}${text}${RESET}"
-        sleep 0.08
-        ((i++))
+    local frames=(
+        '⠋'
+        '⠙'
+        '⠹'
+        '⠸'
+        '⠼'
+        '⠴'
+        '⠦'
+        '⠧'
+        '⠇'
+        '⠏'
+    )
+
+    local i
+
+    for i in $(seq 1 20); do
+
+        printf '\r%b %b' \
+            "${CYAN}${frames[$((i % 10))]}${RESET}" \
+            "${WHITE}${text}${RESET}"
+
+        sleep 0.07
     done
 
-    printf "\r${GREEN}✔${RESET} ${WHITE}${text}${RESET}\n"
+    printf '\r%b %b\n' \
+        "${GREEN}✔${RESET}" \
+        "${WHITE}${text}${RESET}"
 }
+
+# ---------------- PROGRESS ----------------
 
 progress() {
     local title="$1"
-    local width=42
+
+    local width=40
+    local i
+    local filled
+    local empty
 
     for i in $(seq 0 2 100); do
-        local filled=$((i * width / 100))
-        local empty=$((width - filled))
 
-        printf "\r${CYAN}${title}${RESET} ["
-        printf "${PURPLE}%${filled}s${RESET}" "" | tr ' ' '█'
-        printf "${GRAY}%${empty}s${RESET}" "" | tr ' ' '░'
-        printf "] ${WHITE}%3d%%${RESET}" "$i"
+        filled=$((i * width / 100))
+        empty=$((width - filled))
+
+        printf '\r%b [' "${CYAN}${title}${RESET}"
+
+        if [ "$filled" -gt 0 ]; then
+            printf '%*s' "$filled" '' | tr ' ' '█'
+        fi
+
+        if [ "$empty" -gt 0 ]; then
+            printf '%*s' "$empty" '' | tr ' ' '░'
+        fi
+
+        printf '] %3d%%' "$i"
 
         sleep 0.015
     done
 
-    echo
+    printf '\n'
 }
 
-# ---------- LOGO ----------
-logo() {
-    echo
-    center "${PURPLE}${BOLD}██╗  ██╗██╗███╗   ██╗ ██████╗ ${RESET}"
-    center "${PURPLE}${BOLD}██║ ██╔╝██║████╗  ██║██╔════╝ ${RESET}"
-    center "${CYAN}${BOLD}█████╔╝ ██║██╔██╗ ██║██║  ███╗${RESET}"
-    center "${CYAN}${BOLD}██╔═██╗ ██║██║╚██╗██║██║   ██║${RESET}"
-    center "${PURPLE}${BOLD}██║  ██╗██║██║ ╚████║╚██████╔╝${RESET}"
-    center "${PURPLE}${BOLD}╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ${RESET}"
-    echo
-    center "${WHITE}${BOLD}C L O U D   I N S T A L L E R   H U B${RESET}"
-    center "${GRAY}Premium Server Tools • Fast • Simple • Reliable${RESET}"
-    echo
+# ---------------- HIDDEN INSTALLER ----------------
+
+run_hidden() {
+
+    local name="$1"
+    local url="$2"
+
+    local script_file="${LOG_DIR}/${name}.sh"
+    local log_file="${LOG_DIR}/${name}.log"
+
+    # Download silently.
+    if ! curl -fsSL "$url" \
+        -o "$script_file" \
+        2>/dev/null
+    then
+        return 1
+    fi
+
+    # Run installer silently.
+    bash "$script_file" \
+        >"$log_file" \
+        2>&1
+
+    local result=$?
+
+    rm -f "$script_file"
+
+    return "$result"
 }
 
-# ---------- STARTUP ----------
+# ---------------- STARTUP ----------------
+
 startup() {
+
     clear_screen
     hide_cursor
 
     logo
 
-    echo
-    center "${CYAN}Initializing KINGCLOUD environment...${RESET}"
-    echo
-
-    progress "Booting interface"
-    spinner "Loading installer modules" 1
-    spinner "Checking terminal environment" 1
-    spinner "Preparing KINGCLOUD services" 1
+    spinner "Initializing KINGCLOUD"
+    spinner "Loading installer engine"
+    spinner "Preparing cloud environment"
 
     echo
+
     center "${GREEN}${BOLD}✔ KINGCLOUD READY${RESET}"
 
     sleep 1
 }
 
-# ---------- HEADER ----------
-header() {
-    clear_screen
+# ============================================================
+#                    VS CODE INSTALLER
+# ============================================================
 
-    echo
-    center "${PURPLE}${BOLD}👑 KINGCLOUD INSTALLER HUB${RESET}"
-    center "${GRAY}────────────────────────────────────────────${RESET}"
-    echo
-
-    printf " ${CYAN}Server:${RESET} ${WHITE}KINGCLOUD${RESET}"
-    printf "    ${CYAN}Mode:${RESET} ${GREEN}ONLINE${RESET}"
-    printf "    ${CYAN}Version:${RESET} ${WHITE}1.0${RESET}\n"
-
-    echo
-    line
-    echo
-}
-
-# ---------- VS CODE ----------
 install_vscode() {
+
     clear_screen
+    hide_cursor
+
     logo
 
-    echo
     center "${CYAN}${BOLD}VS CODE INSTALLER${RESET}"
+
     echo
     line
     echo
 
-    echo " ${WHITE}This will run the official KINGCLOUD VS Code installer:${RESET}"
+    spinner "Preparing VS Code"
+    spinner "Connecting to installer"
+    spinner "Starting installation"
+
     echo
-    echo " ${GRAY}bash <(curl -s https://raw.githubusercontent.com/${RESET}"
-    echo " ${GRAY}deepaksankhlaking97-svg/vs/refs/heads/main/vs.sh)${RESET}"
+
+    # 100% animation FIRST
+    progress "Installing VS Code"
+
     echo
 
-    read -rp "$(printf "${YELLOW}Continue installation? [Y/n]: ${RESET}")" answer
-    answer=${answer:-Y}
+    # Actual installer starts AFTER 100%
+    spinner "Finalizing VS Code installation"
 
-    if [[ "$answer" =~ ^[Yy]$ ]]; then
-        echo
-        spinner "Starting VS Code installer" 2
-        echo
-
-        bash <(curl -s https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/vs.sh)
+    if run_hidden \
+        "vscode" \
+        "https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/vs.sh"
+    then
 
         echo
-        printf "${GREEN}${BOLD}✔ VS Code installer finished.${RESET}\n"
+
+        center "${GREEN}${BOLD}✔ VS CODE READY${RESET}"
+
     else
-        printf "\n${YELLOW}Installation cancelled.${RESET}\n"
+
+        echo
+
+        center "${RED}${BOLD}✖ VS CODE INSTALLATION FAILED${RESET}"
+        center "${GRAY}Installer returned an error.${RESET}"
+
     fi
 
-    pause_screen
+    echo
+
+    read -r -p "Press ENTER to continue..."
 }
 
-# ---------- CONTAINER ----------
+# ============================================================
+#                  CONTAINER INSTALLER
+# ============================================================
+
 install_container() {
+
     clear_screen
+    hide_cursor
+
     logo
 
-    echo
     center "${CYAN}${BOLD}CONTAINER INSTALLER${RESET}"
+
     echo
     line
     echo
 
-    echo " ${WHITE}This will run the KINGCLOUD Container installer:${RESET}"
+    spinner "Preparing container environment"
+    spinner "Connecting to installer"
+    spinner "Starting installation"
+
     echo
-    echo " ${GRAY}bash <(curl -s https://raw.githubusercontent.com/${RESET}"
-    echo " ${GRAY}deepaksankhlaking97-svg/vs/refs/heads/main/container.sh)${RESET}"
+
+    # 100% animation FIRST
+    progress "Installing Container"
+
     echo
 
-    read -rp "$(printf "${YELLOW}Continue installation? [Y/n]: ${RESET}")" answer
-    answer=${answer:-Y}
+    # Actual installer starts AFTER 100%
+    spinner "Finalizing Container installation"
 
-    if [[ "$answer" =~ ^[Yy]$ ]]; then
-        echo
-        spinner "Starting Container installer" 2
-        echo
-
-        bash <(curl -s https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/container.sh)
+    if run_hidden \
+        "container" \
+        "https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/container.sh"
+    then
 
         echo
-        printf "${GREEN}${BOLD}✔ Container installer finished.${RESET}\n"
+
+        center "${GREEN}${BOLD}✔ CONTAINER READY${RESET}"
+
     else
-        printf "\n${YELLOW}Installation cancelled.${RESET}\n"
+
+        echo
+
+        center "${RED}${BOLD}✖ CONTAINER INSTALLATION FAILED${RESET}"
+        center "${GRAY}Installer returned an error.${RESET}"
+
     fi
 
-    pause_screen
+    echo
+
+    read -r -p "Press ENTER to continue..."
 }
 
-# ---------- COMING SOON ----------
+# ============================================================
+#                      COMING SOON
+# ============================================================
+
 coming_soon() {
+
     clear_screen
+    hide_cursor
 
-    echo
-    center "${PURPLE}${BOLD}👑 KINGCLOUD${RESET}"
-    echo
+    logo
+
     center "${YELLOW}${BOLD}COMING SOON${RESET}"
-    echo
-
-    progress "Preparing future feature"
 
     echo
-    center "${WHITE}This KINGCLOUD feature is currently under development.${RESET}"
-    center "${GRAY}New cloud tools will be added in future updates.${RESET}"
+    line
     echo
 
-    echo
-    printf " ${CYAN}Planned modules:${RESET}\n"
-    echo " ${GRAY}• Server Manager${RESET}"
-    echo " ${GRAY}• Cloud Tools${RESET}"
-    echo " ${GRAY}• Developer Tools${RESET}"
-    echo " ${GRAY}• Advanced Container Tools${RESET}"
-    echo " ${GRAY}• More KINGCLOUD utilities${RESET}"
+    spinner "Preparing future KINGCLOUD feature"
 
-    pause_screen
+    echo
+
+    center "${WHITE}${BOLD}NEW FEATURES ARE COMING${RESET}"
+
+    echo
+
+    center "${GRAY}Future KINGCLOUD modules will appear here.${RESET}"
+
+    echo
+
+    printf '  %b Server Manager\n' "${PURPLE}◆${RESET}"
+    printf '  %b Cloud Tools\n' "${PURPLE}◆${RESET}"
+    printf '  %b Developer Tools\n' "${PURPLE}◆${RESET}"
+    printf '  %b Container Tools\n' "${PURPLE}◆${RESET}"
+    printf '  %b More KINGCLOUD utilities\n' "${PURPLE}◆${RESET}"
+
+    echo
+
+    read -r -p "Press ENTER to continue..."
 }
 
-# ---------- ABOUT ----------
-about() {
-    clear_screen
+# ============================================================
+#                         ABOUT
+# ============================================================
 
-    echo
-    center "${PURPLE}${BOLD}👑 ABOUT KINGCLOUD${RESET}"
+about() {
+
+    clear_screen
+    hide_cursor
+
+    logo
+
+    center "${CYAN}${BOLD}ABOUT KINGCLOUD${RESET}"
+
     echo
     line
     echo
 
     center "${WHITE}${BOLD}KINGCLOUD INSTALLER HUB${RESET}"
-    echo
-    center "${GRAY}A premium terminal interface for KINGCLOUD tools.${RESET}"
-    center "${GRAY}Fast installation • Clean interface • Animated UI${RESET}"
+
     echo
 
-    echo " ${CYAN}Features:${RESET}"
-    echo " ${GREEN}✔${RESET} Animated startup"
-    echo " ${GREEN}✔${RESET} Premium terminal GUI"
-    echo " ${GREEN}✔${RESET} VS Code installer"
-    echo " ${GREEN}✔${RESET} Container installer"
-    echo " ${GREEN}✔${RESET} Coming Soon modules"
-    echo " ${GREEN}✔${RESET} Easy navigation"
+    center "${GRAY}Premium terminal installer interface${RESET}"
+    center "${GRAY}Fast • Clean • Animated • Simple${RESET}"
+
     echo
 
-    echo " ${PURPLE}${BOLD}KINGCLOUD${RESET} ${GRAY}— Build. Deploy. Manage.${RESET}"
+    printf '  %b VS Code Installer\n' "${GREEN}✔${RESET}"
+    printf '  %b Container Installer\n' "${GREEN}✔${RESET}"
+    printf '  %b Hidden installer output\n' "${GREEN}✔${RESET}"
+    printf '  %b Animated progress system\n' "${GREEN}✔${RESET}"
+    printf '  %b Coming Soon modules\n' "${GREEN}✔${RESET}"
 
-    pause_screen
+    echo
+
+    center "${PURPLE}${BOLD}KINGCLOUD${RESET}"
+    center "${GRAY}Build • Deploy • Manage${RESET}"
+
+    echo
+
+    read -r -p "Press ENTER to continue..."
 }
 
-# ---------- MENU ----------
+# ============================================================
+#                          MENU
+# ============================================================
+
 menu() {
+
     while true; do
-        header
 
-        printf " ${PURPLE}${BOLD}MAIN MENU${RESET}\n\n"
+        clear_screen
+        hide_cursor
 
-        printf " ${CYAN}${BOLD}[1]${RESET}  ${WHITE}VS Code Installer${RESET}\n"
-        printf "      ${GRAY}Install VS Code using KINGCLOUD installer${RESET}\n\n"
-
-        printf " ${CYAN}${BOLD}[2]${RESET}  ${WHITE}Container Installer${RESET}\n"
-        printf "      ${GRAY}Install KINGCLOUD container environment${RESET}\n\n"
-
-        printf " ${YELLOW}${BOLD}[3]${RESET}  ${WHITE}Coming Soon${RESET}\n"
-        printf "      ${GRAY}Future KINGCLOUD tools${RESET}\n\n"
-
-        printf " ${BLUE}${BOLD}[4]${RESET}  ${WHITE}About KINGCLOUD${RESET}\n"
-        printf "      ${GRAY}Information about this installer${RESET}\n\n"
-
-        printf " ${RED}${BOLD}[0]${RESET}  ${WHITE}Exit${RESET}\n\n"
+        logo
 
         line
+
         echo
 
-        read -rp "$(printf " ${PURPLE}${BOLD}KINGCLOUD ❯ ${RESET}")" choice
+        printf '  %b  %b\n' \
+            "${PURPLE}${BOLD}[1]${RESET}" \
+            "${WHITE}VS Code Installer${RESET}"
+
+        printf '       %b\n\n' \
+            "${GRAY}Install VS Code${RESET}"
+
+        printf '  %b  %b\n' \
+            "${PURPLE}${BOLD}[2]${RESET}" \
+            "${WHITE}Container Installer${RESET}"
+
+        printf '       %b\n\n' \
+            "${GRAY}Install container environment${RESET}"
+
+        printf '  %b  %b\n' \
+            "${YELLOW}${BOLD}[3]${RESET}" \
+            "${WHITE}Coming Soon${RESET}"
+
+        printf '       %b\n\n' \
+            "${GRAY}Future KINGCLOUD tools${RESET}"
+
+        printf '  %b  %b\n' \
+            "${CYAN}${BOLD}[4]${RESET}" \
+            "${WHITE}About KINGCLOUD${RESET}"
+
+        printf '       %b\n\n' \
+            "${GRAY}About this installer${RESET}"
+
+        printf '  %b  %b\n' \
+            "${RED}${BOLD}[0]${RESET}" \
+            "${WHITE}Exit${RESET}"
+
+        echo
+
+        line
+
+        echo
+
+        read -r -p "$(printf '%b' "${PURPLE}${BOLD}KINGCLOUD ❯ ${RESET}")" choice
 
         case "$choice" in
+
             1)
                 install_vscode
                 ;;
+
             2)
                 install_container
                 ;;
+
             3)
                 coming_soon
                 ;;
+
             4)
                 about
                 ;;
+
             0)
                 clear_screen
-                center "${PURPLE}${BOLD}👑 Thank you for using KINGCLOUD!${RESET}"
-                echo
                 show_cursor
+
+                echo
+
+                center "${PURPLE}${BOLD}👑 KINGCLOUD${RESET}"
+                center "${GRAY}Thank you for using KINGCLOUD.${RESET}"
+
+                echo
+
                 exit 0
                 ;;
+
             *)
-                printf "\n ${RED}✖ Invalid option.${RESET}\n"
+                echo
+                center "${RED}✖ Invalid option${RESET}"
                 sleep 1
                 ;;
+
         esac
+
     done
 }
 
-# ---------- RUN ----------
+# ============================================================
+#                         START
+# ============================================================
+
 startup
 menu
