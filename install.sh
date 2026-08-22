@@ -2,10 +2,6 @@
 
 set -u
 
-# ============================================================
-#                 👑 KINGCLOUD INSTALLER HUB
-# ============================================================
-
 RESET='\033[0m'
 BOLD='\033[1m'
 
@@ -16,9 +12,6 @@ YELLOW='\033[38;5;220m'
 RED='\033[38;5;203m'
 WHITE='\033[38;5;255m'
 GRAY='\033[38;5;245m'
-
-LOG_DIR="/tmp/kingcloud"
-mkdir -p "$LOG_DIR"
 
 hide_cursor() {
     printf '\033[?25l'
@@ -115,44 +108,7 @@ logo() {
     echo
 }
 
-# ============================================================
-#              DIRECT HIDDEN COMMAND RUNNER
-# ============================================================
-
-run_vscode() {
-
-    local logfile="$LOG_DIR/vscode.log"
-
-    # Actual installer runs here AFTER 100%.
-    # stdout/stderr are hidden in the log.
-    bash <(
-        curl -fsSL \
-        "https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/vs.sh"
-    ) >"$logfile" 2>&1
-
-    return $?
-}
-
-run_container() {
-
-    local logfile="$LOG_DIR/container.log"
-
-    # Actual installer runs here AFTER 100%.
-    # stdout/stderr are hidden in the log.
-    bash <(
-        curl -fsSL \
-        "https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/container.sh"
-    ) >"$logfile" 2>&1
-
-    return $?
-}
-
-# ============================================================
-#                     STARTUP
-# ============================================================
-
 startup() {
-
     clear_screen
     hide_cursor
 
@@ -163,25 +119,22 @@ startup() {
     spinner "Preparing cloud environment"
 
     echo
-
     center "${GREEN}${BOLD}✔ KINGCLOUD READY${RESET}"
 
     sleep 1
 }
 
 # ============================================================
-#                    VS CODE
+#                    VS CODE INSTALLER
 # ============================================================
 
 install_vscode() {
-
     clear_screen
     hide_cursor
 
     logo
 
     center "${CYAN}${BOLD}VS CODE INSTALLER${RESET}"
-
     echo
     line
     echo
@@ -192,43 +145,46 @@ install_vscode() {
 
     echo
 
-    # Animation completes FIRST.
+    # Animation completes first.
     progress "Installing VS Code"
 
     echo
+    center "${GREEN}Starting VS Code installer...${RESET}"
+    echo
 
-    # NOW the real installer runs.
-    spinner "Finalizing VS Code installation"
+    # ACTUAL COMMAND — OUTPUT IS VISIBLE
+    bash <(
+        curl -s \
+        "https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/vs.sh"
+    )
 
-    run_vscode
     local result=$?
 
     echo
+    line
 
     if [ "$result" -eq 0 ]; then
-        center "${GREEN}${BOLD}✔ VS CODE INSTALLATION COMPLETE${RESET}"
+        center "${GREEN}${BOLD}✔ VS CODE INSTALLER FINISHED${RESET}"
     else
-        center "${RED}${BOLD}✖ VS CODE INSTALLATION FAILED${RESET}"
-        center "${GRAY}Installer log: $LOG_DIR/vscode.log${RESET}"
+        center "${RED}${BOLD}✖ VS CODE INSTALLER FAILED${RESET}"
+        center "${GRAY}Exit code: $result${RESET}"
     fi
 
     echo
-    read -r -p "Press ENTER to continue..."
+    read -r -p "Press ENTER to return to KINGCLOUD..."
 }
 
 # ============================================================
-#                   CONTAINER
+#                  CONTAINER INSTALLER
 # ============================================================
 
 install_container() {
-
     clear_screen
     hide_cursor
 
     logo
 
     center "${CYAN}${BOLD}CONTAINER INSTALLER${RESET}"
-
     echo
     line
     echo
@@ -239,41 +195,44 @@ install_container() {
 
     echo
 
-    # Animation completes FIRST.
+    # Animation completes first.
     progress "Installing Container"
 
     echo
+    center "${GREEN}Starting Container installer...${RESET}"
+    echo
 
-    # NOW the real installer runs.
-    spinner "Finalizing Container installation"
+    # ACTUAL COMMAND — OUTPUT IS VISIBLE
+    bash <(
+        curl -s \
+        "https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/container.sh"
+    )
 
-    run_container
     local result=$?
 
     echo
+    line
 
     if [ "$result" -eq 0 ]; then
-        center "${GREEN}${BOLD}✔ CONTAINER INSTALLATION COMPLETE${RESET}"
+        center "${GREEN}${BOLD}✔ CONTAINER INSTALLER FINISHED${RESET}"
     else
-        center "${RED}${BOLD}✖ CONTAINER INSTALLATION FAILED${RESET}"
-        center "${GRAY}Installer log: $LOG_DIR/container.log${RESET}"
+        center "${RED}${BOLD}✖ CONTAINER INSTALLER FAILED${RESET}"
+        center "${GRAY}Exit code: $result${RESET}"
     fi
 
     echo
-    read -r -p "Press ENTER to continue..."
+    read -r -p "Press ENTER to return to KINGCLOUD..."
 }
 
 # ============================================================
-#                   COMING SOON
+#                     COMING SOON
 # ============================================================
 
 coming_soon() {
-
     clear_screen
     logo
 
     center "${YELLOW}${BOLD}COMING SOON${RESET}"
-
     echo
     line
     echo
@@ -281,33 +240,28 @@ coming_soon() {
     spinner "Preparing future KINGCLOUD feature"
 
     echo
-
     center "${WHITE}${BOLD}NEW FEATURES ARE COMING${RESET}"
     center "${GRAY}More KINGCLOUD tools will be added soon.${RESET}"
 
     echo
-
     printf '  %b Server Manager\n' "${PURPLE}◆${RESET}"
     printf '  %b Cloud Tools\n' "${PURPLE}◆${RESET}"
     printf '  %b Developer Tools\n' "${PURPLE}◆${RESET}"
     printf '  %b Container Tools\n' "${PURPLE}◆${RESET}"
 
     echo
-
     read -r -p "Press ENTER to continue..."
 }
 
 # ============================================================
-#                       ABOUT
+#                         ABOUT
 # ============================================================
 
 about() {
-
     clear_screen
     logo
 
     center "${CYAN}${BOLD}ABOUT KINGCLOUD${RESET}"
-
     echo
     line
     echo
@@ -319,26 +273,23 @@ about() {
 
     printf '  %b VS Code Installer\n' "${GREEN}✔${RESET}"
     printf '  %b Container Installer\n' "${GREEN}✔${RESET}"
-    printf '  %b Hidden installer output\n' "${GREEN}✔${RESET}"
+    printf '  %b Live installer output\n' "${GREEN}✔${RESET}"
     printf '  %b Animated interface\n' "${GREEN}✔${RESET}"
     printf '  %b Coming Soon modules\n' "${GREEN}✔${RESET}"
 
     echo
-
     center "${PURPLE}${BOLD}KINGCLOUD${RESET}"
     center "${GRAY}Build • Deploy • Manage${RESET}"
 
     echo
-
     read -r -p "Press ENTER to continue..."
 }
 
 # ============================================================
-#                        MENU
+#                          MENU
 # ============================================================
 
 menu() {
-
     while true; do
 
         clear_screen
@@ -387,23 +338,18 @@ menu() {
         read -r -p "KINGCLOUD ❯ " choice
 
         case "$choice" in
-
             1)
                 install_vscode
                 ;;
-
             2)
                 install_container
                 ;;
-
             3)
                 coming_soon
                 ;;
-
             4)
                 about
                 ;;
-
             0)
                 clear_screen
                 show_cursor
@@ -413,19 +359,13 @@ menu() {
                 echo
                 exit 0
                 ;;
-
             *)
                 center "${RED}✖ Invalid option${RESET}"
                 sleep 1
                 ;;
-
         esac
     done
 }
-
-# ============================================================
-#                        START
-# ============================================================
 
 startup
 menu
