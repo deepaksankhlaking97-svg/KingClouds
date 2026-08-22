@@ -1,497 +1,338 @@
-cat > /root/kingcloud-cloudflare.sh <<'EOF'
-#!/bin/bash
+#!/usr/bin/env bash
 
 # ============================================================
-# KINGCLOUD CLOUDFLARE TUNNEL
-# Non-Systemd / Container Friendly
-# HTTP/2 + TCP 7844
-# Automatic restart + connection verification
+#                 👑 KINGCLOUD INSTALLER HUB
+#              Premium Bash GUI • Animated UI
 # ============================================================
 
-PURPLE='\033[38;5;135m'
-PINK='\033[38;5;213m'
-WHITE='\033[1;37m'
-GREEN='\033[1;32m'
-RED='\033[1;31m'
-YELLOW='\033[1;33m'
-CYAN='\033[1;36m'
-RESET='\033[0m'
+set -u
 
-BASE="/etc/cloudflared"
-TOKEN_FILE="$BASE/kingcloud.token"
-PID_FILE="/run/kingcloud-cloudflared.pid"
-LOG_FILE="/var/log/cloudflared-kingcloud.log"
-RUNNER="/usr/local/bin/kingcloud-cloudflare-run"
-SERVICE="/etc/init.d/kingcloud-cloudflare"
+# ---------- COLORS ----------
+RESET="\033[0m"
+BOLD="\033[1m"
+DIM="\033[2m"
 
-CF_BIN="$(command -v cloudflared 2>/dev/null || true)"
+PURPLE="\033[38;5;141m"
+CYAN="\033[38;5;51m"
+BLUE="\033[38;5;75m"
+GREEN="\033[38;5;82m"
+YELLOW="\033[38;5;220m"
+RED="\033[38;5;203m"
+WHITE="\033[38;5;255m"
+GRAY="\033[38;5;245m"
 
-clear
+# ---------- TERMINAL ----------
+clear_screen() {
+    printf "\033[2J\033[H"
+}
 
-echo -e "${PURPLE}"
-echo "╔══════════════════════════════════════════════╗"
-echo "║          👑 KINGCLOUD CLOUDFLARE             ║"
-echo "║          STABLE TUNNEL INSTALLER             ║"
-echo "╚══════════════════════════════════════════════╝"
-echo -e "${RESET}"
+hide_cursor() {
+    printf "\033[?25l"
+}
 
-# ============================================================
-# ROOT
-# ============================================================
+show_cursor() {
+    printf "\033[?25h"
+}
 
-if [ "$EUID" != "0" ]; then
-    echo -e "${RED}❌ Run this script as root.${RESET}"
-    exit 1
-fi
+trap show_cursor EXIT
+trap 'show_cursor; exit 0' INT TERM
 
-# ============================================================
-# CLOUDFLARED
-# ============================================================
+# ---------- HELPERS ----------
+line() {
+    printf "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}\n"
+}
 
-if [ -z "$CF_BIN" ]; then
-    echo -e "${RED}❌ cloudflared is not installed.${RESET}"
+center() {
+    local text="$1"
+    local width
+    width=$(tput cols 2>/dev/null || echo 80)
+    local len=${#text}
+    local pad=$(( (width - len) / 2 ))
+
+    (( pad < 0 )) && pad=0
+    printf "%*s%b\n" "$pad" "" "$text"
+}
+
+pause_screen() {
     echo
-    echo "Install cloudflared first."
-    exit 1
-fi
+    printf "${GRAY}Press ENTER to return to KINGCLOUD menu...${RESET}"
+    read -r
+}
 
-echo -e "${GREEN}✓ cloudflared:${RESET} $CF_BIN"
-"$CF_BIN" --version
-echo
+spinner() {
+    local text="$1"
+    local duration="${2:-2}"
+    local frames=("⠋" "⠙" "⠹" "⠸" "⠼" "⠴" "⠦" "⠧" "⠇" "⠏")
+    local end=$((SECONDS + duration))
+    local i=0
 
-# ============================================================
-# CLEAN OUR OLD SERVICE
-# ============================================================
-
-echo -e "${YELLOW}[1/7] Cleaning previous KINGCLOUD tunnel...${RESET}"
-
-if [ -x "$SERVICE" ]; then
-    "$SERVICE" stop >/dev/null 2>&1 || true
-fi
-
-# Kill only processes using our token file
-pkill -f -- "--token-file $TOKEN_FILE" >/dev/null 2>&1 || true
-
-rm -f "$PID_FILE"
-
-sleep 2
-
-echo -e "${GREEN}✓ Cleanup complete${RESET}"
-echo
-
-# ============================================================
-# TOKEN
-# ============================================================
-
-echo -e "${YELLOW}[2/7] Cloudflare Tunnel Token${RESET}"
-echo
-echo -e "${WHITE}Paste ONLY the token.${RESET}"
-echo -e "${CYAN}Example: eyJhIjoi...${RESET}"
-echo
-echo -e "${YELLOW}Input is hidden.${RESET}"
-echo
-
-read -r -s -p "🔑 Token: " CF_TOKEN
-echo
-echo
-
-# Remove spaces/newlines accidentally pasted
-CF_TOKEN="$(printf '%s' "$CF_TOKEN" | tr -d '[:space:]')"
-
-if [ -z "$CF_TOKEN" ]; then
-    echo -e "${RED}❌ Token is empty.${RESET}"
-    exit 1
-fi
-
-# Cloudflare tunnel tokens are JWT-like strings
-if [[ "$CF_TOKEN" != eyJ* ]]; then
-    echo -e "${RED}❌ Token format looks invalid.${RESET}"
-    echo
-    echo "Paste the complete Cloudflare Tunnel token beginning with eyJ..."
-    exit 1
-fi
-
-# ============================================================
-# SAVE TOKEN
-# ============================================================
-
-echo -e "${YELLOW}[3/7] Saving token securely...${RESET}"
-
-mkdir -p "$BASE"
-
-printf '%s\n' "$CF_TOKEN" > "$TOKEN_FILE"
-
-chmod 600 "$TOKEN_FILE"
-chown root:root "$TOKEN_FILE"
-
-unset CF_TOKEN
-
-echo -e "${GREEN}✓ Token saved: $TOKEN_FILE${RESET}"
-echo
-
-# ============================================================
-# LOG
-# ============================================================
-
-touch "$LOG_FILE"
-chmod 600 "$LOG_FILE"
-chown root:root "$LOG_FILE"
-
-# ============================================================
-# NETWORK TEST
-# ============================================================
-
-echo -e "${YELLOW}[4/7] Testing Cloudflare TCP 7844...${RESET}"
-echo
-
-TEST_IPS=(
-    "198.41.192.57"
-    "198.41.192.107"
-    "198.41.192.167"
-    "198.41.192.227"
-)
-
-TCP_OK=false
-
-if command -v nc >/dev/null 2>&1; then
-
-    for IP in "${TEST_IPS[@]}"; do
-        echo -ne "Testing ${IP}:7844 ... "
-
-        if nc -z -w 5 "$IP" 7844 >/dev/null 2>&1; then
-            echo -e "${GREEN}OPEN${RESET}"
-            TCP_OK=true
-            break
-        else
-            echo -e "${RED}FAILED${RESET}"
-        fi
+    while [ "$SECONDS" -lt "$end" ]; do
+        printf "\r${CYAN}${frames[$((i % ${#frames[@]}))]}${RESET} ${WHITE}${text}${RESET}"
+        sleep 0.08
+        ((i++))
     done
 
-else
+    printf "\r${GREEN}✔${RESET} ${WHITE}${text}${RESET}\n"
+}
 
-    echo -e "${YELLOW}nc not installed. Installing netcat test utility...${RESET}"
+progress() {
+    local title="$1"
+    local width=42
 
-    if command -v apt-get >/dev/null 2>&1; then
-        apt-get update -qq >/dev/null 2>&1 || true
-        apt-get install -y netcat-openbsd >/dev/null 2>&1 || true
-    fi
+    for i in $(seq 0 2 100); do
+        local filled=$((i * width / 100))
+        local empty=$((width - filled))
 
-    if command -v nc >/dev/null 2>&1; then
-        for IP in "${TEST_IPS[@]}"; do
+        printf "\r${CYAN}${title}${RESET} ["
+        printf "${PURPLE}%${filled}s${RESET}" "" | tr ' ' '█'
+        printf "${GRAY}%${empty}s${RESET}" "" | tr ' ' '░'
+        printf "] ${WHITE}%3d%%${RESET}" "$i"
 
-            echo -ne "Testing ${IP}:7844 ... "
-
-            if nc -z -w 5 "$IP" 7844 >/dev/null 2>&1; then
-                echo -e "${GREEN}OPEN${RESET}"
-                TCP_OK=true
-                break
-            else
-                echo -e "${RED}FAILED${RESET}"
-            fi
-
-        done
-    fi
-
-fi
-
-echo
-
-if [ "$TCP_OK" != true ]; then
-
-    echo -e "${RED}"
-    echo "╔══════════════════════════════════════════════╗"
-    echo "║          ❌ TCP 7844 IS BLOCKED              ║"
-    echo "╚══════════════════════════════════════════════╝"
-    echo -e "${RESET}"
+        sleep 0.015
+    done
 
     echo
-    echo -e "${YELLOW}Cloudflare Tunnel needs outbound TCP 7844 for HTTP/2.${RESET}"
+}
+
+# ---------- LOGO ----------
+logo() {
     echo
-    echo "This is normally caused by:"
-    echo "  • VPS/provider firewall"
-    echo "  • Container network restrictions"
-    echo "  • Host firewall"
-    echo "  • Security-group egress rules"
+    center "${PURPLE}${BOLD}██╗  ██╗██╗███╗   ██╗ ██████╗ ${RESET}"
+    center "${PURPLE}${BOLD}██║ ██╔╝██║████╗  ██║██╔════╝ ${RESET}"
+    center "${CYAN}${BOLD}█████╔╝ ██║██╔██╗ ██║██║  ███╗${RESET}"
+    center "${CYAN}${BOLD}██╔═██╗ ██║██║╚██╗██║██║   ██║${RESET}"
+    center "${PURPLE}${BOLD}██║  ██╗██║██║ ╚████║╚██████╔╝${RESET}"
+    center "${PURPLE}${BOLD}╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝ ╚═════╝ ${RESET}"
     echo
-    echo -e "${CYAN}Check:${RESET}"
-    echo "  ufw status"
-    echo "  iptables -S"
-    echo "  nft list ruleset"
+    center "${WHITE}${BOLD}C L O U D   I N S T A L L E R   H U B${RESET}"
+    center "${GRAY}Premium Server Tools • Fast • Simple • Reliable${RESET}"
     echo
-    echo -e "${CYAN}Your provider must allow:${RESET}"
-    echo "  OUTBOUND TCP 7844"
+}
+
+# ---------- STARTUP ----------
+startup() {
+    clear_screen
+    hide_cursor
+
+    logo
+
     echo
-    echo "The token itself is not the problem."
-    exit 1
-fi
+    center "${CYAN}Initializing KINGCLOUD environment...${RESET}"
+    echo
 
-echo -e "${GREEN}✓ TCP 7844 reachable${RESET}"
-echo
+    progress "Booting interface"
+    spinner "Loading installer modules" 1
+    spinner "Checking terminal environment" 1
+    spinner "Preparing KINGCLOUD services" 1
 
-# ============================================================
-# RUNNER
-# ============================================================
+    echo
+    center "${GREEN}${BOLD}✔ KINGCLOUD READY${RESET}"
 
-echo -e "${YELLOW}[5/7] Creating Cloudflare runner...${RESET}"
+    sleep 1
+}
 
-cat > "$RUNNER" <<EOF_RUNNER
-#!/bin/bash
+# ---------- HEADER ----------
+header() {
+    clear_screen
 
-CF_BIN="$CF_BIN"
-TOKEN_FILE="$TOKEN_FILE"
-LOG_FILE="$LOG_FILE"
-PID_FILE="$PID_FILE"
+    echo
+    center "${PURPLE}${BOLD}👑 KINGCLOUD INSTALLER HUB${RESET}"
+    center "${GRAY}────────────────────────────────────────────${RESET}"
+    echo
 
-mkdir -p "\$(dirname "\$LOG_FILE")"
-mkdir -p "\$(dirname "\$PID_FILE")"
+    printf " ${CYAN}Server:${RESET} ${WHITE}KINGCLOUD${RESET}"
+    printf "    ${CYAN}Mode:${RESET} ${GREEN}ONLINE${RESET}"
+    printf "    ${CYAN}Version:${RESET} ${WHITE}1.0${RESET}\n"
 
-echo "" >> "\$LOG_FILE"
-echo "============================================" >> "\$LOG_FILE"
-echo "KINGCLOUD CLOUDFLARE START" >> "\$LOG_FILE"
-date -u >> "\$LOG_FILE"
-echo "Protocol: HTTP/2" >> "\$LOG_FILE"
-echo "Transport: TCP 7844" >> "\$LOG_FILE"
-echo "============================================" >> "\$LOG_FILE"
+    echo
+    line
+    echo
+}
 
-while true
-do
+# ---------- VS CODE ----------
+install_vscode() {
+    clear_screen
+    logo
 
-    echo "Starting cloudflared..." >> "\$LOG_FILE"
+    echo
+    center "${CYAN}${BOLD}VS CODE INSTALLER${RESET}"
+    echo
+    line
+    echo
 
-    "\$CF_BIN" tunnel \
-        --no-autoupdate \
-        --protocol http2 \
-        --loglevel info \
-        --logfile "\$LOG_FILE" \
-        run \
-        --token-file "\$TOKEN_FILE" \
-        >> "\$LOG_FILE" 2>&1
+    echo " ${WHITE}This will run the official KINGCLOUD VS Code installer:${RESET}"
+    echo
+    echo " ${GRAY}bash <(curl -s https://raw.githubusercontent.com/${RESET}"
+    echo " ${GRAY}deepaksankhlaking97-svg/vs/refs/heads/main/vs.sh)${RESET}"
+    echo
 
-    EXIT_CODE=\$?
+    read -rp "$(printf "${YELLOW}Continue installation? [Y/n]: ${RESET}")" answer
+    answer=${answer:-Y}
 
-    echo "cloudflared exited with code \$EXIT_CODE" >> "\$LOG_FILE"
+    if [[ "$answer" =~ ^[Yy]$ ]]; then
+        echo
+        spinner "Starting VS Code installer" 2
+        echo
 
-    if [ "\$EXIT_CODE" = "0" ]; then
-        echo "Process stopped normally." >> "\$LOG_FILE"
+        bash <(curl -s https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/vs.sh)
+
+        echo
+        printf "${GREEN}${BOLD}✔ VS Code installer finished.${RESET}\n"
     else
-        echo "Process stopped unexpectedly." >> "\$LOG_FILE"
+        printf "\n${YELLOW}Installation cancelled.${RESET}\n"
     fi
 
-    echo "Restarting in 5 seconds..." >> "\$LOG_FILE"
-
-    sleep 5
-
-done
-EOF_RUNNER
-
-chmod 700 "$RUNNER"
-chown root:root "$RUNNER"
-
-echo -e "${GREEN}✓ Runner created${RESET}"
-echo
-
-# ============================================================
-# INIT SERVICE
-# ============================================================
-
-echo -e "${YELLOW}[6/7] Creating non-systemd service...${RESET}"
-
-cat > "$SERVICE" <<EOF_SERVICE
-#!/bin/sh
-
-RUNNER="$RUNNER"
-PID_FILE="$PID_FILE"
-LOG_FILE="$LOG_FILE"
-
-start() {
-
-    if [ -f "\$PID_FILE" ]; then
-
-        PID=\$(cat "\$PID_FILE" 2>/dev/null)
-
-        if [ -n "\$PID" ] && kill -0 "\$PID" 2>/dev/null; then
-            echo "Cloudflare Tunnel already running."
-            echo "PID: \$PID"
-            return 0
-        fi
-
-        rm -f "\$PID_FILE"
-    fi
-
-    echo "Starting KINGCLOUD Cloudflare Tunnel..."
-
-    nohup "\$RUNNER" >/dev/null 2>&1 &
-
-    PID=\$!
-
-    echo "\$PID" > "\$PID_FILE"
-
-    sleep 4
-
-    if kill -0 "\$PID" 2>/dev/null; then
-        echo "Cloudflare runner started."
-        echo "PID: \$PID"
-        return 0
-    fi
-
-    rm -f "\$PID_FILE"
-
-    echo "Failed to start Cloudflare runner."
-    return 1
+    pause_screen
 }
 
-stop() {
+# ---------- CONTAINER ----------
+install_container() {
+    clear_screen
+    logo
 
-    if [ ! -f "\$PID_FILE" ]; then
-        echo "Cloudflare Tunnel is not running."
-        return 0
+    echo
+    center "${CYAN}${BOLD}CONTAINER INSTALLER${RESET}"
+    echo
+    line
+    echo
+
+    echo " ${WHITE}This will run the KINGCLOUD Container installer:${RESET}"
+    echo
+    echo " ${GRAY}bash <(curl -s https://raw.githubusercontent.com/${RESET}"
+    echo " ${GRAY}deepaksankhlaking97-svg/vs/refs/heads/main/container.sh)${RESET}"
+    echo
+
+    read -rp "$(printf "${YELLOW}Continue installation? [Y/n]: ${RESET}")" answer
+    answer=${answer:-Y}
+
+    if [[ "$answer" =~ ^[Yy]$ ]]; then
+        echo
+        spinner "Starting Container installer" 2
+        echo
+
+        bash <(curl -s https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/container.sh)
+
+        echo
+        printf "${GREEN}${BOLD}✔ Container installer finished.${RESET}\n"
+    else
+        printf "\n${YELLOW}Installation cancelled.${RESET}\n"
     fi
 
-    PID=\$(cat "\$PID_FILE" 2>/dev/null)
-
-    if [ -n "\$PID" ] && kill -0 "\$PID" 2>/dev/null; then
-        echo "Stopping Cloudflare Tunnel..."
-
-        kill "\$PID" 2>/dev/null || true
-
-        sleep 3
-
-        kill -9 "\$PID" 2>/dev/null || true
-    fi
-
-    rm -f "\$PID_FILE"
-
-    # Stop cloudflared processes using our token
-    pkill -f -- "--token-file $TOKEN_FILE" 2>/dev/null || true
-
-    echo "Cloudflare Tunnel stopped."
+    pause_screen
 }
 
-restart() {
-    stop
-    sleep 2
-    start
+# ---------- COMING SOON ----------
+coming_soon() {
+    clear_screen
+
+    echo
+    center "${PURPLE}${BOLD}👑 KINGCLOUD${RESET}"
+    echo
+    center "${YELLOW}${BOLD}COMING SOON${RESET}"
+    echo
+
+    progress "Preparing future feature"
+
+    echo
+    center "${WHITE}This KINGCLOUD feature is currently under development.${RESET}"
+    center "${GRAY}New cloud tools will be added in future updates.${RESET}"
+    echo
+
+    echo
+    printf " ${CYAN}Planned modules:${RESET}\n"
+    echo " ${GRAY}• Server Manager${RESET}"
+    echo " ${GRAY}• Cloud Tools${RESET}"
+    echo " ${GRAY}• Developer Tools${RESET}"
+    echo " ${GRAY}• Advanced Container Tools${RESET}"
+    echo " ${GRAY}• More KINGCLOUD utilities${RESET}"
+
+    pause_screen
 }
 
-status() {
+# ---------- ABOUT ----------
+about() {
+    clear_screen
 
-    if [ -f "\$PID_FILE" ]; then
+    echo
+    center "${PURPLE}${BOLD}👑 ABOUT KINGCLOUD${RESET}"
+    echo
+    line
+    echo
 
-        PID=\$(cat "\$PID_FILE" 2>/dev/null)
+    center "${WHITE}${BOLD}KINGCLOUD INSTALLER HUB${RESET}"
+    echo
+    center "${GRAY}A premium terminal interface for KINGCLOUD tools.${RESET}"
+    center "${GRAY}Fast installation • Clean interface • Animated UI${RESET}"
+    echo
 
-        if [ -n "\$PID" ] && kill -0 "\$PID" 2>/dev/null; then
-            echo "Cloudflare Runner: RUNNING"
-            echo "PID: \$PID"
-            return 0
-        fi
-    fi
+    echo " ${CYAN}Features:${RESET}"
+    echo " ${GREEN}✔${RESET} Animated startup"
+    echo " ${GREEN}✔${RESET} Premium terminal GUI"
+    echo " ${GREEN}✔${RESET} VS Code installer"
+    echo " ${GREEN}✔${RESET} Container installer"
+    echo " ${GREEN}✔${RESET} Coming Soon modules"
+    echo " ${GREEN}✔${RESET} Easy navigation"
+    echo
 
-    echo "Cloudflare Runner: STOPPED"
-    return 1
+    echo " ${PURPLE}${BOLD}KINGCLOUD${RESET} ${GRAY}— Build. Deploy. Manage.${RESET}"
+
+    pause_screen
 }
 
-logs() {
-    tail -n 100 "\$LOG_FILE"
+# ---------- MENU ----------
+menu() {
+    while true; do
+        header
+
+        printf " ${PURPLE}${BOLD}MAIN MENU${RESET}\n\n"
+
+        printf " ${CYAN}${BOLD}[1]${RESET}  ${WHITE}VS Code Installer${RESET}\n"
+        printf "      ${GRAY}Install VS Code using KINGCLOUD installer${RESET}\n\n"
+
+        printf " ${CYAN}${BOLD}[2]${RESET}  ${WHITE}Container Installer${RESET}\n"
+        printf "      ${GRAY}Install KINGCLOUD container environment${RESET}\n\n"
+
+        printf " ${YELLOW}${BOLD}[3]${RESET}  ${WHITE}Coming Soon${RESET}\n"
+        printf "      ${GRAY}Future KINGCLOUD tools${RESET}\n\n"
+
+        printf " ${BLUE}${BOLD}[4]${RESET}  ${WHITE}About KINGCLOUD${RESET}\n"
+        printf "      ${GRAY}Information about this installer${RESET}\n\n"
+
+        printf " ${RED}${BOLD}[0]${RESET}  ${WHITE}Exit${RESET}\n\n"
+
+        line
+        echo
+
+        read -rp "$(printf " ${PURPLE}${BOLD}KINGCLOUD ❯ ${RESET}")" choice
+
+        case "$choice" in
+            1)
+                install_vscode
+                ;;
+            2)
+                install_container
+                ;;
+            3)
+                coming_soon
+                ;;
+            4)
+                about
+                ;;
+            0)
+                clear_screen
+                center "${PURPLE}${BOLD}👑 Thank you for using KINGCLOUD!${RESET}"
+                echo
+                show_cursor
+                exit 0
+                ;;
+            *)
+                printf "\n ${RED}✖ Invalid option.${RESET}\n"
+                sleep 1
+                ;;
+        esac
+    done
 }
 
-case "\$1" in
-    start)
-        start
-        ;;
-    stop)
-        stop
-        ;;
-    restart)
-        restart
-        ;;
-    status)
-        status
-        ;;
-    logs)
-        logs
-        ;;
-    *)
-        echo "Usage: \$0 {start|stop|restart|status|logs}"
-        exit 1
-        ;;
-esac
-EOF_SERVICE
-
-chmod 700 "$SERVICE"
-chown root:root "$SERVICE"
-
-echo -e "${GREEN}✓ Service created${RESET}"
-echo
-
-# ============================================================
-# START
-# ============================================================
-
-echo -e "${YELLOW}[7/7] Starting tunnel...${RESET}"
-
-"$SERVICE" start
-
-sleep 8
-
-echo
-echo -e "${CYAN}Checking tunnel logs...${RESET}"
-echo
-
-# ============================================================
-# SUCCESS DETECTION
-# ============================================================
-
-if grep -Eqi \
-"Registered tunnel connection|Connection .* registered|Tunnel connection registered" \
-"$LOG_FILE" 2>/dev/null; then
-
-    echo -e "${GREEN}"
-    echo "╔══════════════════════════════════════════════╗"
-    echo "║       ✅ CLOUDFLARE TUNNEL CONNECTED         ║"
-    echo "║              👑 KINGCLOUD                    ║"
-    echo "╚══════════════════════════════════════════════╝"
-    echo -e "${RESET}"
-
-else
-
-    echo -e "${YELLOW}"
-    echo "╔══════════════════════════════════════════════╗"
-    echo "║      ⚠️ PROCESS RUNNING — VERIFYING...      ║"
-    echo "╚══════════════════════════════════════════════╝"
-    echo -e "${RESET}"
-
-fi
-
-echo
-echo -e "${CYAN}Service:${RESET} $SERVICE"
-echo -e "${CYAN}Token:${RESET}   $TOKEN_FILE"
-echo -e "${CYAN}Log:${RESET}     $LOG_FILE"
-echo
-echo -e "${YELLOW}Latest logs:${RESET}"
-tail -n 40 "$LOG_FILE" 2>/dev/null || true
-
-echo
-echo -e "${GREEN}Management commands:${RESET}"
-echo
-echo "Start:"
-echo "  $SERVICE start"
-echo
-echo "Stop:"
-echo "  $SERVICE stop"
-echo
-echo "Restart:"
-echo "  $SERVICE restart"
-echo
-echo "Status:"
-echo "  $SERVICE status"
-echo
-echo "Logs:"
-echo "  $SERVICE logs"
-echo
-echo "Live logs:"
-echo "  tail -f $LOG_FILE"
-
-EOF
-
-chmod +x /root/kingcloud-cloudflare.sh
-bash /root/kingcloud-cloudflare.sh
+# ---------- RUN ----------
+startup
+menu
