@@ -1,3 +1,4 @@
+```bash
 #!/usr/bin/env bash
 # ==========================================================
 #              👑 KINGCLOUD INSTALLER HUB
@@ -25,11 +26,13 @@ WHITE="\033[38;5;255m"
 GRAY="\033[38;5;245m"
 
 # ==========================================================
-# LINKS
+# REMOTE INSTALLER URLS
 # ==========================================================
 
 WIN10_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/KingClouds/refs/heads/main/win10.sh"
+
 VSCODE_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/vs.sh"
+
 CONTAINER_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/container.sh"
 
 # ==========================================================
@@ -53,18 +56,14 @@ cleanup() {
 }
 
 trap cleanup EXIT
-trap 'exit 0' INT TERM
+trap 'show_cursor; exit 0' INT TERM
 
 # ==========================================================
-# HELPERS
+# CENTER TEXT
 # ==========================================================
-
-line() {
-    printf '%b\n' "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-}
 
 center() {
-    local msg="$1"
+    local text="$1"
     local width
     local clean
     local len
@@ -72,15 +71,30 @@ center() {
 
     width=$(tput cols 2>/dev/null || echo 80)
 
-    clean=$(printf '%b' "$msg" | sed $'s/\033\\[[0-9;]*m//g')
+    clean=$(printf '%b' "$text" | sed $'s/\033\\[[0-9;]*m//g')
     len=${#clean}
 
     pad=$(( (width - len) / 2 ))
 
-    [ "$pad" -lt 0 ] && pad=0
+    if [ "$pad" -lt 0 ]; then
+        pad=0
+    fi
 
-    printf '%*s%b\n' "$pad" "" "$msg"
+    printf '%*s%b\n' "$pad" "" "$text"
 }
+
+# ==========================================================
+# LINE
+# ==========================================================
+
+line() {
+    printf '%b\n' \
+        "${PURPLE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+}
+
+# ==========================================================
+# PAUSE
+# ==========================================================
 
 pause_screen() {
     echo
@@ -109,14 +123,18 @@ spinner() {
         "⠏"
     )
 
-    local end=$((SECONDS + duration))
+    local end
     local i=0
 
+    end=$((SECONDS + duration))
+
     while [ "$SECONDS" -lt "$end" ]; do
+
         printf '\r%b' \
             "${CYAN}${frames[$((i % ${#frames[@]}))]}${RESET} ${WHITE}${message}${RESET}"
 
         sleep 0.08
+
         i=$((i + 1))
     done
 
@@ -165,6 +183,7 @@ progress() {
 # ==========================================================
 
 logo() {
+
     echo
 
     center "${PURPLE}${BOLD}██╗  ██╗██╗███╗   ██╗ ██████╗${RESET}"
@@ -183,7 +202,7 @@ logo() {
 }
 
 # ==========================================================
-# STARTUP ANIMATION
+# STARTUP
 # ==========================================================
 
 startup() {
@@ -211,10 +230,17 @@ startup() {
 
     echo
 
-    printf ' %b\n' "${CYAN}System${RESET}   ${GREEN}● ONLINE${RESET}"
-    printf ' %b\n' "${CYAN}Network${RESET}  ${GREEN}● READY${RESET}"
-    printf ' %b\n' "${CYAN}Modules${RESET}  ${GREEN}● LOADED${RESET}"
-    printf ' %b\n' "${CYAN}VPS${RESET}      ${GREEN}● DETECTED${RESET}"
+    printf ' %b\n' \
+        "${CYAN}System${RESET}   ${GREEN}● ONLINE${RESET}"
+
+    printf ' %b\n' \
+        "${CYAN}Network${RESET}  ${GREEN}● READY${RESET}"
+
+    printf ' %b\n' \
+        "${CYAN}Modules${RESET}  ${GREEN}● LOADED${RESET}"
+
+    printf ' %b\n' \
+        "${CYAN}VPS${RESET}      ${GREEN}● DETECTED${RESET}"
 
     echo
 
@@ -242,14 +268,48 @@ header() {
 
     echo
 
-    printf ' %b' "${CYAN}Server:${RESET} ${WHITE}KINGCLOUD${RESET}"
-    printf '    %b' "${CYAN}Mode:${RESET} ${GREEN}ONLINE${RESET}"
-    printf '    %b\n' "${CYAN}Version:${RESET} ${WHITE}3.0${RESET}"
+    printf ' %b' \
+        "${CYAN}Server:${RESET} ${WHITE}KINGCLOUD${RESET}"
+
+    printf '    %b' \
+        "${CYAN}Mode:${RESET} ${GREEN}ONLINE${RESET}"
+
+    printf '    %b\n' \
+        "${CYAN}Version:${RESET} ${WHITE}3.0${RESET}"
 
     echo
 
     line
+
     echo
+}
+
+# ==========================================================
+# CHECK CURL
+# ==========================================================
+
+check_curl() {
+
+    if command -v curl >/dev/null 2>&1; then
+        return 0
+    fi
+
+    echo
+
+    printf '%b\n' \
+        "${RED}${BOLD}✖ curl is not installed.${RESET}"
+
+    echo
+
+    printf '%b\n' \
+        "${YELLOW}Install curl with:${RESET}"
+
+    printf '%b\n' \
+        "${WHITE}apt-get update && apt-get install -y curl${RESET}"
+
+    echo
+
+    return 1
 }
 
 # ==========================================================
@@ -274,24 +334,34 @@ windows10_animation() {
     center "${GRAY}Preparing Windows 10 installation environment${RESET}"
 
     echo
+
     line
+
     echo
 
     spinner "Initializing Windows 10 installer" 1
     spinner "Checking virtualization environment" 1
-    spinner "Preparing VM resources" 1
-    spinner "Connecting to KINGCLOUD Windows service" 1
+    spinner "Preparing VM environment" 1
+    spinner "Connecting to Windows 10 service" 1
+    spinner "Starting Windows 10 setup" 1
 
     echo
 
-    printf ' %b\n' "${CYAN}Virtualization${RESET} ${GREEN}● READY${RESET}"
-    printf ' %b\n' "${CYAN}VM Engine${RESET}      ${GREEN}● READY${RESET}"
-    printf ' %b\n' "${CYAN}Network${RESET}        ${GREEN}● READY${RESET}"
-    printf ' %b\n' "${CYAN}Storage${RESET}        ${GREEN}● READY${RESET}"
+    printf ' %b\n' \
+        "${CYAN}Virtualization${RESET} ${GREEN}● READY${RESET}"
+
+    printf ' %b\n' \
+        "${CYAN}VM Engine${RESET}      ${GREEN}● READY${RESET}"
+
+    printf ' %b\n' \
+        "${CYAN}Network${RESET}        ${GREEN}● READY${RESET}"
+
+    printf ' %b\n' \
+        "${CYAN}Storage${RESET}        ${GREEN}● READY${RESET}"
 
     echo
 
-    progress "Launching Windows 10"
+    progress "Opening Windows 10"
 
     echo
 
@@ -309,7 +379,9 @@ install_windows10() {
     windows10_animation
 
     echo
+
     line
+
     echo
 
     printf '%b\n' \
@@ -319,37 +391,49 @@ install_windows10() {
 
     sleep 1
 
-    if command -v curl >/dev/null 2>&1; then
+    if ! check_curl; then
+        pause_screen
+        return
+    fi
 
-        if bash <(curl -fsSL "$WIN10_URL"); then
+    echo
 
-            echo
-            printf '%b\n' \
-                "${GREEN}${BOLD}✔ Windows 10 installer finished.${RESET}"
+    printf '%b\n' \
+        "${GRAY}Source:${RESET} ${WHITE}${WIN10_URL}${RESET}"
 
-        else
+    echo
 
-            echo
-            printf '%b\n' \
-                "${RED}${BOLD}✖ Windows 10 installer failed.${RESET}"
-        fi
+    # EXACT WINDOWS 10 COMMAND
+    bash <(curl -fsSL \
+        "https://raw.githubusercontent.com/deepaksankhlaking97-svg/KingClouds/refs/heads/main/win10.sh")
+
+    local status=$?
+
+    echo
+
+    if [ "$status" -eq 0 ]; then
+
+        printf '%b\n' \
+            "${GREEN}${BOLD}✔ Windows 10 installer completed successfully.${RESET}"
 
     else
 
         printf '%b\n' \
-            "${RED}${BOLD}✖ curl is not installed.${RESET}"
+            "${RED}${BOLD}✖ Windows 10 installer exited with error code ${status}.${RESET}"
 
         echo
+
         printf '%b\n' \
-            "${YELLOW}Install curl first: apt install curl -y${RESET}"
+            "${YELLOW}Check the win10.sh script or GitHub file if the installer itself has an error.${RESET}"
     fi
 
     echo
+
     pause_screen
 }
 
 # ==========================================================
-# VS CODE
+# VS CODE INSTALLER
 # ==========================================================
 
 install_vscode() {
@@ -362,7 +446,9 @@ install_vscode() {
     center "${CYAN}${BOLD}VS CODE INSTALLER${RESET}"
 
     echo
+
     line
+
     echo
 
     center "${WHITE}Visual Studio Code${RESET}"
@@ -372,6 +458,7 @@ install_vscode() {
 
     spinner "Connecting to VS Code installer" 1
     spinner "Preparing VS Code installation" 1
+    spinner "Starting installation" 1
 
     echo
 
@@ -379,25 +466,35 @@ install_vscode() {
 
     echo
 
+    if ! check_curl; then
+        pause_screen
+        return
+    fi
+
+    echo
+
     if bash <(curl -fsSL "$VSCODE_URL"); then
 
         echo
+
         printf '%b\n' \
             "${GREEN}${BOLD}✔ VS Code installation completed.${RESET}"
 
     else
 
         echo
+
         printf '%b\n' \
             "${RED}${BOLD}✖ VS Code installation failed.${RESET}"
     fi
 
     echo
+
     pause_screen
 }
 
 # ==========================================================
-# CONTAINER
+# CONTAINER INSTALLER
 # ==========================================================
 
 install_container() {
@@ -410,7 +507,9 @@ install_container() {
     center "${CYAN}${BOLD}CONTAINER INSTALLER${RESET}"
 
     echo
+
     line
+
     echo
 
     center "${WHITE}KINGCLOUD Container Environment${RESET}"
@@ -420,7 +519,8 @@ install_container() {
 
     spinner "Connecting to container installer" 1
     spinner "Checking container environment" 1
-    spinner "Preparing container installation" 1
+    spinner "Preparing container environment" 1
+    spinner "Starting installation" 1
 
     echo
 
@@ -428,20 +528,30 @@ install_container() {
 
     echo
 
+    if ! check_curl; then
+        pause_screen
+        return
+    fi
+
+    echo
+
     if bash <(curl -fsSL "$CONTAINER_URL"); then
 
         echo
+
         printf '%b\n' \
             "${GREEN}${BOLD}✔ Container installation completed.${RESET}"
 
     else
 
         echo
+
         printf '%b\n' \
             "${RED}${BOLD}✖ Container installation failed.${RESET}"
     fi
 
     echo
+
     pause_screen
 }
 
@@ -459,7 +569,9 @@ about() {
     center "${PURPLE}${BOLD}👑 ABOUT KINGCLOUD${RESET}"
 
     echo
+
     line
+
     echo
 
     center "${WHITE}${BOLD}KINGCLOUD INSTALLER HUB${RESET}"
@@ -471,7 +583,8 @@ about() {
 
     echo
 
-    printf ' %b\n' "${CYAN}Available Tools:${RESET}"
+    printf ' %b\n' \
+        "${CYAN}Available Tools:${RESET}"
 
     echo " ${GREEN}✔${RESET} Windows 10 VM Installer"
     echo " ${GREEN}✔${RESET} VS Code Installer"
@@ -498,36 +611,50 @@ menu() {
 
         header
 
-        printf ' %b\n\n' "${PURPLE}${BOLD}MAIN MENU${RESET}"
+        printf ' %b\n\n' \
+            "${PURPLE}${BOLD}MAIN MENU${RESET}"
 
+        # --------------------------------------------------
         # OPTION 1
+        # --------------------------------------------------
+
         printf ' %b\n' \
             "${BLUE}${BOLD}[1]${RESET}  ${WHITE}Windows 10 Installer${RESET}"
 
         printf '      %b\n\n' \
             "${GRAY}Install Windows 10 virtual machine${RESET}"
 
+        # --------------------------------------------------
         # OPTION 2
+        # --------------------------------------------------
+
         printf ' %b\n' \
             "${CYAN}${BOLD}[2]${RESET}  ${WHITE}VS Code Installer${RESET}"
 
         printf '      %b\n\n' \
             "${GRAY}Install Visual Studio Code on your VPS${RESET}"
 
+        # --------------------------------------------------
         # OPTION 3
+        # --------------------------------------------------
+
         printf ' %b\n' \
             "${PURPLE}${BOLD}[3]${RESET}  ${WHITE}Container Installer${RESET}"
 
         printf '      %b\n\n' \
             "${GRAY}Install container environment on your VPS${RESET}"
 
+        # --------------------------------------------------
         # EXIT
+        # --------------------------------------------------
+
         printf ' %b\n' \
             "${RED}${BOLD}[0]${RESET}  ${WHITE}Exit${RESET}"
 
         echo
 
         line
+
         echo
 
         read -r -p \
@@ -552,7 +679,9 @@ menu() {
                 show_cursor
 
                 echo
+
                 center "${PURPLE}${BOLD}👑 Thank you for using KINGCLOUD!${RESET}"
+
                 echo
 
                 exit 0
@@ -576,3 +705,4 @@ menu() {
 
 startup
 menu
+```
