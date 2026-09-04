@@ -31,7 +31,7 @@ GRAY="\033[38;5;245m"
 FREEVPS_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/free-vps.sh"
 VSCODE_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/vs.sh"
 CONTAINER_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/container.sh"
-MINECRAFT_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/KingClouds/refs/heads/main/server.sh"
+MINECRAFT_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/server.sh"
 
 # ==========================================================
 # TERMINAL
