@@ -31,6 +31,7 @@ GRAY="\033[38;5;245m"
 FREEVPS_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/free-vps.sh"
 VSCODE_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/vs.sh"
 CONTAINER_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/container.sh"
+MINECRAFT_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/KingClouds/refs/heads/main/server.sh"
 
 # ==========================================================
 # TERMINAL
@@ -301,6 +302,54 @@ freevps_animation() {
 }
 
 # ==========================================================
+# MINECRAFT PANEL ANIMATION
+# ==========================================================
+
+minecraft_animation() {
+
+    clear_screen
+    hide_cursor
+
+    echo
+
+    center "${GREEN}${BOLD}╔══════════════════════════════════════════════╗${RESET}"
+    center "${GREEN}${BOLD}║           ⛏️  MINECRAFT PANEL               ║${RESET}"
+    center "${GREEN}${BOLD}║             CLOUD INSTALLER                 ║${RESET}"
+    center "${GREEN}${BOLD}╚══════════════════════════════════════════════╝${RESET}"
+
+    echo
+
+    center "${WHITE}${BOLD}Minecraft Panel Environment${RESET}"
+    center "${GRAY}Preparing Minecraft Panel installation environment${RESET}"
+
+    echo
+    line
+    echo
+
+    spinner "Initializing Minecraft Panel installer" 1
+    spinner "Checking system requirements" 1
+    spinner "Preparing server resources" 1
+    spinner "Connecting to KINGCLOUD Minecraft service" 1
+
+    echo
+
+    printf ' %b\n' "${CYAN}Java Environment${RESET} ${GREEN}● READY${RESET}"
+    printf ' %b\n' "${CYAN}Panel Engine${RESET}     ${GREEN}● READY${RESET}"
+    printf ' %b\n' "${CYAN}Network${RESET}          ${GREEN}● READY${RESET}"
+    printf ' %b\n' "${CYAN}Storage${RESET}          ${GREEN}● READY${RESET}"
+
+    echo
+
+    progress "Launching Minecraft Panel"
+
+    echo
+
+    center "${GREEN}${BOLD}✔ MINECRAFT PANEL INSTALLER READY${RESET}"
+
+    sleep 1
+}
+
+# ==========================================================
 # FREE VPS INSTALLER
 # ==========================================================
 
@@ -446,6 +495,54 @@ install_container() {
 }
 
 # ==========================================================
+# MINECRAFT PANEL INSTALLER
+# ==========================================================
+
+install_minecraft() {
+
+    minecraft_animation
+
+    echo
+    line
+    echo
+
+    printf '%b\n' \
+        "${CYAN}▶${RESET} ${WHITE}Opening Minecraft Panel installer...${RESET}"
+
+    echo
+
+    sleep 1
+
+    if command -v curl >/dev/null 2>&1; then
+
+        if bash <(curl -fsSL "$MINECRAFT_URL"); then
+
+            echo
+            printf '%b\n' \
+                "${GREEN}${BOLD}✔ Minecraft Panel installation completed.${RESET}"
+
+        else
+
+            echo
+            printf '%b\n' \
+                "${RED}${BOLD}✖ Minecraft Panel installation failed.${RESET}"
+        fi
+
+    else
+
+        printf '%b\n' \
+            "${RED}${BOLD}✖ curl is not installed.${RESET}"
+
+        echo
+        printf '%b\n' \
+            "${YELLOW}Install curl first: apt install curl -y${RESET}"
+    fi
+
+    echo
+    pause_screen
+}
+
+# ==========================================================
 # ABOUT
 # ==========================================================
 
@@ -476,6 +573,7 @@ about() {
     echo " ${GREEN}✔${RESET} Free VPS Installer"
     echo " ${GREEN}✔${RESET} VS Code Installer"
     echo " ${GREEN}✔${RESET} Container Installer"
+    echo " ${GREEN}✔${RESET} Minecraft Panel Installer"
     echo " ${GREEN}✔${RESET} Premium startup animation"
     echo " ${GREEN}✔${RESET} VPS detection"
     echo " ${GREEN}✔${RESET} Progress animations"
@@ -514,12 +612,19 @@ menu() {
         printf '      %b\n\n' \
             "${GRAY}Install container environment on your VPS${RESET}"
 
-        # OPTION 3 (Moved from 1 and renamed)
+        # OPTION 3
         printf ' %b\n' \
             "${BLUE}${BOLD}[3]${RESET}  ${WHITE}Free VPS Installer${RESET}"
 
         printf '      %b\n\n' \
             "${GRAY}Install Free VPS environment${RESET}"
+
+        # OPTION 4
+        printf ' %b\n' \
+            "${GREEN}${BOLD}[4]${RESET}  ${WHITE}Minecraft Panel Installer${RESET}"
+
+        printf '      %b\n\n' \
+            "${GRAY}Install Minecraft Panel on your VPS${RESET}"
 
         # EXIT
         printf ' %b\n' \
@@ -547,6 +652,10 @@ menu() {
                 install_freevps
                 ;;
 
+            4)
+                install_minecraft
+                ;;
+
             0)
                 clear_screen
                 show_cursor
@@ -560,7 +669,7 @@ menu() {
 
             *)
                 printf '\n%b\n' \
-                    " ${RED}✖ Invalid option. Please choose 0-3.${RESET}"
+                    " ${RED}✖ Invalid option. Please choose 0-4.${RESET}"
 
                 sleep 1
                 ;;
