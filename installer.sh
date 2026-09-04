@@ -28,7 +28,7 @@ GRAY="\033[38;5;245m"
 # LINKS
 # ==========================================================
 
-WIN10_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/win10.sh"
+FREEVPS_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/free-vps.sh"
 VSCODE_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/vs.sh"
 CONTAINER_URL="https://raw.githubusercontent.com/deepaksankhlaking97-svg/vs/refs/heads/main/container.sh"
 
@@ -253,10 +253,10 @@ header() {
 }
 
 # ==========================================================
-# WINDOWS 10 ANIMATION
+# FREE VPS ANIMATION
 # ==========================================================
 
-windows10_animation() {
+freevps_animation() {
 
     clear_screen
     hide_cursor
@@ -264,56 +264,56 @@ windows10_animation() {
     echo
 
     center "${BLUE}${BOLD}╔══════════════════════════════════════════════╗${RESET}"
-    center "${BLUE}${BOLD}║              🪟 WINDOWS 10                  ║${RESET}"
+    center "${BLUE}${BOLD}║              🚀 FREE VPS                    ║${RESET}"
     center "${BLUE}${BOLD}║             CLOUD INSTALLER                 ║${RESET}"
     center "${BLUE}${BOLD}╚══════════════════════════════════════════════╝${RESET}"
 
     echo
 
-    center "${WHITE}${BOLD}Windows 10 Virtual Machine${RESET}"
-    center "${GRAY}Preparing Windows 10 installation environment${RESET}"
+    center "${WHITE}${BOLD}Free VPS Environment${RESET}"
+    center "${GRAY}Preparing Free VPS installation environment${RESET}"
 
     echo
     line
     echo
 
-    spinner "Initializing Windows 10 installer" 1
+    spinner "Initializing Free VPS installer" 1
     spinner "Checking virtualization environment" 1
-    spinner "Preparing VM resources" 1
-    spinner "Connecting to KINGCLOUD Windows service" 1
+    spinner "Preparing VPS resources" 1
+    spinner "Connecting to KINGCLOUD Free VPS service" 1
 
     echo
 
     printf ' %b\n' "${CYAN}Virtualization${RESET} ${GREEN}● READY${RESET}"
-    printf ' %b\n' "${CYAN}VM Engine${RESET}      ${GREEN}● READY${RESET}"
+    printf ' %b\n' "${CYAN}VPS Engine${RESET}     ${GREEN}● READY${RESET}"
     printf ' %b\n' "${CYAN}Network${RESET}        ${GREEN}● READY${RESET}"
     printf ' %b\n' "${CYAN}Storage${RESET}        ${GREEN}● READY${RESET}"
 
     echo
 
-    progress "Launching Windows 10"
+    progress "Launching Free VPS"
 
     echo
 
-    center "${GREEN}${BOLD}✔ WINDOWS 10 INSTALLER READY${RESET}"
+    center "${GREEN}${BOLD}✔ FREE VPS INSTALLER READY${RESET}"
 
     sleep 1
 }
 
 # ==========================================================
-# WINDOWS 10 INSTALLER
+# FREE VPS INSTALLER
 # ==========================================================
 
-install_windows10() {
+install_freevps() {
 
-    windows10_animation
+    freevps_animation
 
     echo
     line
     echo
 
     printf '%b\n' \
-        "${CYAN}▶${RESET} ${WHITE}Opening Windows 10 installer...${RESET}"
+        "${CYAN}▶${RESET} ${WHITE}Opening Free VPS installer...${RESET}"
 
     echo
 
@@ -321,17 +321,17 @@ install_windows10() {
 
     if command -v curl >/dev/null 2>&1; then
 
-        if bash <(curl -fsSL "$WIN10_URL"); then
+        if bash <(curl -fsSL "$FREEVPS_URL"); then
 
             echo
             printf '%b\n' \
-                "${GREEN}${BOLD}✔ Windows 10 installer finished.${RESET}"
+                "${GREEN}${BOLD}✔ Free VPS installer finished.${RESET}"
 
         else
 
             echo
             printf '%b\n' \
-                "${RED}${BOLD}✖ Windows 10 installer failed.${RESET}"
+                "${RED}${BOLD}✖ Free VPS installer failed.${RESET}"
         fi
 
     else
@@ -473,7 +473,7 @@ about() {
 
     printf ' %b\n' "${CYAN}Available Tools:${RESET}"
 
-    echo " ${GREEN}✔${RESET} Windows 10 VM Installer"
+    echo " ${GREEN}✔${RESET} Free VPS Installer"
     echo " ${GREEN}✔${RESET} VS Code Installer"
     echo " ${GREEN}✔${RESET} Container Installer"
     echo " ${GREEN}✔${RESET} Premium startup animation"
@@ -502,24 +502,24 @@ menu() {
 
         # OPTION 1
         printf ' %b\n' \
-            "${BLUE}${BOLD}[1]${RESET}  ${WHITE}Windows 10 Installer${RESET}"
-
-        printf '      %b\n\n' \
-            "${GRAY}Install Windows 10 virtual machine${RESET}"
-
-        # OPTION 2
-        printf ' %b\n' \
-            "${CYAN}${BOLD}[2]${RESET}  ${WHITE}VS Code Installer${RESET}"
+            "${CYAN}${BOLD}[1]${RESET}  ${WHITE}VS Code Installer${RESET}"
 
         printf '      %b\n\n' \
             "${GRAY}Install Visual Studio Code on your VPS${RESET}"
 
-        # OPTION 3
+        # OPTION 2
         printf ' %b\n' \
-            "${PURPLE}${BOLD}[3]${RESET}  ${WHITE}Container Installer${RESET}"
+            "${PURPLE}${BOLD}[2]${RESET}  ${WHITE}Container Installer${RESET}"
 
         printf '      %b\n\n' \
             "${GRAY}Install container environment on your VPS${RESET}"
+
+        # OPTION 3 (Moved from 1 and renamed)
+        printf ' %b\n' \
+            "${BLUE}${BOLD}[3]${RESET}  ${WHITE}Free VPS Installer${RESET}"
+
+        printf '      %b\n\n' \
+            "${GRAY}Install Free VPS environment${RESET}"
 
         # EXIT
         printf ' %b\n' \
@@ -536,15 +536,15 @@ menu() {
         case "$choice" in
 
             1)
-                install_windows10
-                ;;
-
-            2)
                 install_vscode
                 ;;
 
-            3)
+            2)
                 install_container
+                ;;
+
+            3)
+                install_freevps
                 ;;
 
             0)
@@ -566,7 +566,6 @@ menu() {
                 ;;
 
         esac
-
     done
 }
 
